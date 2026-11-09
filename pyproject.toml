@@ -1,23 +1,19 @@
-# Ядро диалога одним пакетом без ROS (ADR-0160 §8 К1, карточка #4245).
+# Ядро диалога РОББОКСа одним пакетом без ROS (ADR-0160 §8 К1, ADR-0167).
 #
-# Решение Шифу 30.10 п.4: граница сначала внутри репо, пакет (не сабмодуль), отдельный репозиторий — потом.
-# Исходники НЕ копируются: пакет собирается из тех же каталогов src/<пакет>/<пакет>, что и ROS-пакеты робота
-# (colcon по-прежнему ставит их своими setup.py). Здесь только граница: что входит в ядро.
+# Репозиторий krikz/rob_box_dialog_core вынесен из krikz/rob_box_project с историей (ADR-0167 Ш2, git filter-repo).
+# Исходники лежат там же, где в репо робота: src/<пакет>/<пакет>; этот файл - единственное описание сборки.
+# (package.xml / setup.py в src/<пакет>/ - остаток colcon робота, пока робот не ставит ядро из тега - ADR-0167 Ш3.)
 #
-#   pip install "git+https://github.com/krikz/rob_box_project@develop#subdirectory=packaging/dialog-core"
-#   pip install ./packaging/dialog-core            # из чекаута
-#
-# Сборка только «в дереве» (pip ≥ 21.3: локальный каталог и git+…#subdirectory): каталоги пакетов лежат выше
-# pyproject.toml, поэтому sdist (python -m build --sdist) их не унесёт — колесо собирать из чекаута.
+#   pip install "rob-box-dialog-core @ git+https://github.com/krikz/rob_box_dialog_core@vX.Y.Z"
+#   pip install .            # из чекаута
 #
 # Состав:
 #   * целиком: rob_box_core, rob_box_llm, rob_box_harness, rob_box_dialog, rob_box_dialog_host (связка хода: мост
-#     команд, порты диалога, память, каталог голосов, состояние музыки, разбор команд движения, фразы медиа —
+#     команд, порты диалога, память, каталог голосов, состояние музыки, разбор команд движения, фразы медиа -
 #     ADR-0167 Ш1г) и rob_box_music (чистая модель музыки: её знание читают фразы медиа);
-#   * из rob_box_mcp_tools — событие владельца и форма запроса голоса (voice_request).
-# Пакет rob_box_mcp_tools здесь НЕПОЛНЫЙ: ставить это ядро в одно окружение с полным ROS-пакетом нельзя (робот
-# так и не делает — у него colcon). rob_box_voice в ядре нет с Ш1г-2 (ADR-0167).
-# Список модулей сверяет тест src/rob_box_dialog/test/test_core_package_4245.py: каждый — без ROS на верхнем уровне.
+#   * из rob_box_mcp_tools - событие владельца и форма запроса голоса (voice_request).
+# Пакет rob_box_mcp_tools здесь НЕПОЛНЫЙ: ставить это ядро в одно окружение с полным ROS-пакетом робота нельзя.
+# Список модулей сверяет тест src/rob_box_dialog/test/test_core_package_4245.py: каждый - без ROS на верхнем уровне.
 
 [build-system]
 requires = ["setuptools>=77"]
@@ -63,18 +59,18 @@ py-modules = [
 
 [tool.setuptools.packages.find]
 where = [
-    "../../src/rob_box_core",
-    "../../src/rob_box_llm",
-    "../../src/rob_box_harness",
-    "../../src/rob_box_dialog",
-    "../../src/rob_box_dialog_host",
-    "../../src/rob_box_music",
+    "src/rob_box_core",
+    "src/rob_box_llm",
+    "src/rob_box_harness",
+    "src/rob_box_dialog",
+    "src/rob_box_dialog_host",
+    "src/rob_box_music",
 ]
 include = ["rob_box_core*", "rob_box_llm*", "rob_box_harness*", "rob_box_dialog*", "rob_box_music*"]  # dialog* - и _host
 exclude = ["*.test", "*.test.*"]
 
 [tool.setuptools.package-dir]
-rob_box_mcp_tools = "../../src/rob_box_mcp_tools/rob_box_mcp_tools"
+rob_box_mcp_tools = "src/rob_box_mcp_tools/rob_box_mcp_tools"
 
 [tool.setuptools.package-data]
 "rob_box_dialog.phrases" = ["*.yaml"]

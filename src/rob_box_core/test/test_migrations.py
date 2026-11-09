@@ -60,10 +60,10 @@ def test_colcon_setup_ships_the_sql_as_package_data():
     assert data.get("rob_box_core.migrations") == ["*.sql"]
 
 
-PYPROJECT = REPO / "packaging" / "dialog-core" / "pyproject.toml"
+PYPROJECT = REPO / "pyproject.toml"
 
 
-@pytest.mark.skipif(not PYPROJECT.is_file(), reason="нет packaging/ (colcon test_ws G-Run Tests копирует только src/)")
+@pytest.mark.skipif(not PYPROJECT.is_file(), reason="нет pyproject.toml (colcon test_ws копирует только src/)")
 def test_core_package_ships_the_sql_as_package_data():
     text = PYPROJECT.read_text(encoding="utf-8")
     assert '"rob_box_core.migrations" = ["*.sql"]' in text

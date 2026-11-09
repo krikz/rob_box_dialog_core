@@ -117,8 +117,8 @@ git check-ignore -v scripts/dialogue/.env
 ```bash
 # 1. ядро одним пакетом (ADR-0160 §8 К1, #4245) - стенд и консоль берут его, а не src/
 python3 -m venv .venv
-.venv/Scripts/pip install ./packaging/dialog-core
-# или без чекаута: pip install "git+https://github.com/krikz/rob_box_project@develop#subdirectory=packaging/dialog-core"
+.venv/Scripts/pip install .
+# или без чекаута: pip install "rob-box-dialog-core @ git+https://github.com/krikz/rob_box_dialog_core@vX.Y.Z"
 
 # 2. без пакета - ничего ставить, кроме openai/httpx/pyyaml, не нужно
 ```

@@ -5,7 +5,7 @@
 (``get_package_share_directory``), монтирование контейнера робота (``/migrations``, ``docker/…``) там ведут в пустоту.
 Свои данные ядро читает через ``importlib.resources``; что даёт продукт - передаёт хост.
 
-Состав - из ``packaging/dialog-core/pyproject.toml`` (каталоги пакетов и ``py-modules``), исходники - из ``src/``
+Состав - из ``pyproject.toml`` в корне (каталоги пакетов и ``py-modules``), исходники - из ``src/``
 чекаута, поэтому тест идёт в любом окружении. Комментарии и строки документации не считаются.
 
 Известные дыры - :data:`KNOWN_LEAKS`, с числом мест. Число можно только понижать: закрыл дыру - уменьши, новая
@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 SRC = Path(__file__).resolve().parents[2]
-PYPROJECT = SRC.parent / "packaging" / "dialog-core" / "pyproject.toml"
+PYPROJECT = SRC.parent / "pyproject.toml"
 
 #: ``файл относительно src/<пакет>/`` → (число мест, почему ещё здесь и где закрывается).
 #: Пусто с Ш1а-2: каталог пресетов стиля ушёл в профиль продукта (env ``ROB_BOX_VOICE_PRESETS_YAML``), описания
@@ -35,7 +35,7 @@ _ROBOT_PATH = re.compile(r"""(^[rbu]*['"]/(migrations|config|ws|opt)\b)|docker/|
 
 def _core_files():
     text = PYPROJECT.read_text(encoding="utf-8")
-    roots = re.findall(r'"\.\./\.\./src/([a-z_]+)"', text)
+    roots = re.findall(r'^\s*"src/([a-z_]+)",\s*$', text, re.M)
     for root in roots:
         pkg = SRC / root / root
         yield from (p for p in pkg.rglob("*.py") if "test" not in p.relative_to(pkg).parts)
@@ -74,7 +74,7 @@ def _leaks(path: Path):
                 yield tok.start[0], tok.string
 
 
-pytestmark = pytest.mark.skipif(not PYPROJECT.is_file(), reason="нет packaging/ (colcon test_ws копирует только src/)")
+pytestmark = pytest.mark.skipif(not PYPROJECT.is_file(), reason="нет pyproject.toml (colcon test_ws копирует только src/)")
 
 
 def test_core_files_are_found():

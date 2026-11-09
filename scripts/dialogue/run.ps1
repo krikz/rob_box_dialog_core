@@ -25,7 +25,7 @@ $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
-# Интерпретатор: ядру нужен Python 3.10+ (packaging/dialog-core, requires-python).
+# Интерпретатор: ядру нужен Python 3.10+ (pyproject.toml, requires-python).
 # Замер #4245: тесты ядра из пакета зелёные на 3.11.0 и 3.12.6, робот - 3.10.
 $Python = $null
 $VenvPython = Join-Path $RepoRoot ".venv\Scripts\python.exe"

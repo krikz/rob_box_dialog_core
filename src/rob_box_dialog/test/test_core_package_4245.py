@@ -1,6 +1,6 @@
 """Ядро диалога пакетом без ROS (ADR-0160 §8 К1, карточка #4245).
 
-Проверяется то, что РЕАЛЬНО поставлено пакетом ``rob-box-dialog-core`` (``packaging/dialog-core``): список модулей
+Проверяется то, что РЕАЛЬНО поставлено пакетом ``rob-box-dialog-core`` (``pyproject.toml``): список модулей
 берётся из RECORD установленного дистрибутива, а не из разметки. Без поставленного пакета (colcon-окружение робота,
 G-Run Tests) тесты пропускаются - их гоняет CI-джоб «Dialog core package» в чистом venv на 3.10/3.11/3.12.
 
@@ -31,7 +31,7 @@ try:
 except md.PackageNotFoundError:  # pragma: no cover - окружение без пакета
     _DIST = None
 
-pytestmark = pytest.mark.skipif(_DIST is None, reason=f"{DIST} не поставлен (pip install packaging/dialog-core)")
+pytestmark = pytest.mark.skipif(_DIST is None, reason=f"{DIST} не поставлен (pip install .)")
 
 
 def _sources():

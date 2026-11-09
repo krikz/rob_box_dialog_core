@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.coverage
+# ключи консоли и стенда (scripts/dialogue/.env.example - образец без значений)
+.env
+# чекаут робота для сверок в CI (ADR-0167 Ш2, до Ш3/Ш5)
+/_robot/
