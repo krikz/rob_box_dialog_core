@@ -16,7 +16,7 @@
 #     поштучно (py-modules), без mcp_server/core/engine робота;
 # Пакет rob_box_mcp_tools здесь НЕПОЛНЫЙ: ставить это ядро в одно окружение с полным ROS-пакетом робота нельзя.
 # Список модулей сверяет тест src/rob_box_dialog/test/test_core_package_4245.py: каждый - без ROS на верхнем уровне.
-# Консоль стенда - entry point rbx-chat (rbx_console.py; scripts/dialog+scripts/dialogue в data-files, ADR-0167 Ш3).
+# Консоль стенда - entry point rbx-chat (rbx_console.py, из чекаута: скрипты стенда в пакет НЕ входят).
 
 [build-system]
 requires = ["setuptools>=77"]
@@ -91,17 +91,3 @@ rob_box_mcp_tools = "src/rob_box_mcp_tools/rob_box_mcp_tools"
 "rob_box_core.migrations" = ["*.sql"]
 "rob_box_music" = ["data/*.json"]
 
-[tool.setuptools.data-files]
-"share/rob_box_dialog_core/scripts/dialog" = [
-    "scripts/dialog/dry_stand.py",
-    "scripts/dialog/dry_marathon.py",
-    "scripts/dialog/e2e_db.py",
-    "scripts/dialog/e2e_tool_match.py",
-    "scripts/dialog/env_files.py",
-    "scripts/dialog/speech_format.py",
-    "scripts/dialog/speech_text.py",
-    "scripts/dialog/understanding_variants.py",
-]
-"share/rob_box_dialog_core/scripts/dialogue" = [
-    "scripts/dialogue/chat.py",
-]
