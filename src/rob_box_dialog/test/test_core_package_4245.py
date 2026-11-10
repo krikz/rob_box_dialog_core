@@ -61,6 +61,11 @@ def test_package_ships_core_and_bridge():
                  "rob_box_dialog_host.speaker_memory", "rob_box_dialog_host.tts_voice_registry",
                  "rob_box_dialog_host.music_player_state"):  # связка хода - пакет rob_box_dialog_host (Ш1г)
         assert must in names, must
+    # Ш3 (ADR-0167): адаптеры речи и тул поиска в ядре (старый rob_box_voice.* не воскрешаем).
+    for must in ("rob_box_llm.stt_providers.minimax_provider",
+                 "rob_box_mcp_tools.tools.web_search",
+                 "rob_box_dialog.prompts"):  # основа промпта - importlib.resources (Ш1б)
+        assert must in names, must
     assert not [n for n in names if n.startswith("rob_box_voice")], "rob_box_voice в ядре не ставится (Ш1г-2)"
     assert not [n for n in names if ".test." in f".{n}." or n.endswith("_node")], "тесты и ROS-ноды не в ядре"
 

@@ -8,12 +8,14 @@
 #   pip install .            # из чекаута
 #
 # Состав:
-#   * целиком: rob_box_core, rob_box_llm, rob_box_harness, rob_box_dialog, rob_box_dialog_host (связка хода: мост
-#     команд, порты диалога, память, каталог голосов, состояние музыки, разбор команд движения, фразы медиа -
-#     ADR-0167 Ш1г) и rob_box_music (чистая модель музыки: её знание читают фразы медиа);
-#   * из rob_box_mcp_tools - событие владельца и форма запроса голоса (voice_request).
+#   * целиком: rob_box_core, rob_box_llm (провайдеры LLM, STT и TTS: stt_providers/minimax, providers/minimax_tts),
+#     rob_box_harness, rob_box_dialog, rob_box_dialog_host (связка хода: мост команд, порты диалога, память, каталог
+#     голосов, состояние музыки, разбор команд движения, фразы медиа - ADR-0167 Ш1г) и rob_box_music (чистая модель
+#     музыки: её знание читают фразы медиа);
+#   * из rob_box_mcp_tools - base, owner_event, voice_request и тул поиска tools.web_search (поиск колонки, ADR-0167 Ш3).
 # Пакет rob_box_mcp_tools здесь НЕПОЛНЫЙ: ставить это ядро в одно окружение с полным ROS-пакетом робота нельзя.
 # Список модулей сверяет тест src/rob_box_dialog/test/test_core_package_4245.py: каждый - без ROS на верхнем уровне.
+# Консоль стенда - entry point rbx-chat (scripts/dialogue/chat.py + scripts/dialog/* в package-data, ADR-0167 Ш3).
 
 [build-system]
 requires = ["setuptools>=77"]
@@ -29,7 +31,9 @@ name = "rob-box-dialog-core"
 #        ни одного тула продукта; harness: load_system_prompt и AgentSpec.prompt_dir/system_prompt_file удалены (Ш1в).
 # 0.6.0: связка хода - пакет rob_box_dialog_host (ADR-0167 Ш1г-1); старые пути rob_box_voice - псевдонимы.
 # 0.7.0: старые пути rob_box_voice.core.* удалены, ядро без rob_box_voice (ADR-0167 Ш1г-2).
-version = "0.7.0"
+# 0.7.2: Ш3 — провайдер STT MiniMax (rob_box_llm.stt_providers.minimax_provider), тул поиска
+#        rob_box_mcp_tools.tools.web_search, консоль-скрипт rbx-chat (добавка модулей, порт не сломан → patch).
+version = "0.7.2"
 description = "Ядро диалога РОББОКСа без ROS: ход, адресация, мост команд LLM, память (ADR-0150, ADR-0160 §8)"
 license = "MIT"
 requires-python = ">=3.10"
@@ -38,6 +42,10 @@ dependencies = [
     "openai>=1.0",
     "httpx>=0.27",
 ]
+
+[project.scripts]
+# Консоль стенда хода v2 (scripts/dialogue/chat.py, ADR-0167 Ш3): rbx-chat вместо python scripts/dialogue/chat.py.
+rbx-chat = "rob_box_dialog_console.cli:main"
 
 [project.optional-dependencies]
 test = [
@@ -51,11 +59,6 @@ test = [
 
 [tool.setuptools]
 zip-safe = false
-py-modules = [
-    "rob_box_mcp_tools.owner_event",
-    "rob_box_mcp_tools.voice_request",
-    "rob_box_mcp_tools.base",
-]
 
 [tool.setuptools.packages.find]
 where = [
@@ -65,12 +68,21 @@ where = [
     "src/rob_box_dialog",
     "src/rob_box_dialog_host",
     "src/rob_box_music",
+    "src/rob_box_mcp_tools",
+    "src/rob_box_dialog_console",
 ]
-include = ["rob_box_core*", "rob_box_llm*", "rob_box_harness*", "rob_box_dialog*", "rob_box_music*"]  # dialog* - и _host
+include = [
+    "rob_box_core*",
+    "rob_box_llm*",
+    "rob_box_harness*",
+    "rob_box_dialog*",
+    "rob_box_music*",
+    "rob_box_mcp_tools*",
+    "rob_box_dialog_console*",
+]  # dialog* - и _host; mcp_tools/tools.dir за main-package; dialog_console - консоль rbx-chat
 exclude = ["*.test", "*.test.*"]
 
 [tool.setuptools.package-dir]
-rob_box_mcp_tools = "src/rob_box_mcp_tools/rob_box_mcp_tools"
 
 [tool.setuptools.package-data]
 "rob_box_dialog.phrases" = ["*.yaml"]
@@ -79,3 +91,6 @@ rob_box_mcp_tools = "src/rob_box_mcp_tools/rob_box_mcp_tools"
 "rob_box_core" = ["py.typed", "dialog_msgs/*.msg"]
 "rob_box_core.migrations" = ["*.sql"]
 "rob_box_music" = ["data/*.json"]
+# Стенд консоли (ADR-0167 Ш3): loose-скрипты, которые грузит rbx-chat по файловым путям (как раньше из чекаута).
+"rob_box_mcp_tools.tools" = []
+"rob_box_dialog_console.data" = ["scripts/dialog/*.py", "scripts/dialogue/*.py"]
