@@ -34,7 +34,7 @@ import urllib.error
 import urllib.request
 from typing import Any, Callable, List, Mapping, Optional, Tuple
 
-from ..base import MCPTool, MCPToolParameter, MCPToolResult
+from rob_box_mcp_tools.base import MCPTool, MCPToolParameter, MCPToolResult
 
 #: Транспорт HTTP — (method, url, headers, body, timeout) -> (status, body). В ядре (ADR-0167 Ш3)
 #: нет клиента KIE: вместо ``rob_box_mcp_tools.engine.gen.kie_suno.Transport`` — свой протокол +

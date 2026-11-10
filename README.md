@@ -26,8 +26,9 @@ rbx-chat --once "Сколько у тебя заряда?" --once "Робот, �
 rbx-chat --providers deepseek --debug                            # интерактивно
 ```
 
-Заменяет `python scripts/dialogue/chat.py`. Скрипты стенда лежат в пакете как package-data
-(`rob_box_dialog_console.data.scripts`); ключи — из `scripts/dialogue/.env` или окружения.
+Заменяет `python scripts/dialogue/chat.py`. Скрипты стенда — не код ядра (у них относительные пути
+для прогона из чекаута), поэтому при pip-установке кладутся в `data-files` (`share/rob_box_dialog_core/scripts/`),
+а `rbx-chat` находит их там или прямо в чекауте. Ключи — из `scripts/dialogue/.env` или окружения.
 
 ## Что внутри
 

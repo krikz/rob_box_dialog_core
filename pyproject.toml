@@ -12,10 +12,11 @@
 #     rob_box_harness, rob_box_dialog, rob_box_dialog_host (связка хода: мост команд, порты диалога, память, каталог
 #     голосов, состояние музыки, разбор команд движения, фразы медиа - ADR-0167 Ш1г) и rob_box_music (чистая модель
 #     музыки: её знание читают фразы медиа);
-#   * из rob_box_mcp_tools - base, owner_event, voice_request и тул поиска tools.web_search (поиск колонки, ADR-0167 Ш3).
+#   * из rob_box_mcp_tools - base, owner_event, voice_request и тул поиска tools.web_search (поиск колонки, ADR-0167 Ш3),
+#     поштучно (py-modules), без mcp_server/core/engine робота;
 # Пакет rob_box_mcp_tools здесь НЕПОЛНЫЙ: ставить это ядро в одно окружение с полным ROS-пакетом робота нельзя.
 # Список модулей сверяет тест src/rob_box_dialog/test/test_core_package_4245.py: каждый - без ROS на верхнем уровне.
-# Консоль стенда - entry point rbx-chat (scripts/dialogue/chat.py + scripts/dialog/* в package-data, ADR-0167 Ш3).
+# Консоль стенда - entry point rbx-chat (rbx_console.py; scripts/dialog+scripts/dialogue в data-files, ADR-0167 Ш3).
 
 [build-system]
 requires = ["setuptools>=77"]
@@ -45,7 +46,7 @@ dependencies = [
 
 [project.scripts]
 # Консоль стенда хода v2 (scripts/dialogue/chat.py, ADR-0167 Ш3): rbx-chat вместо python scripts/dialogue/chat.py.
-rbx-chat = "rob_box_dialog_console.cli:main"
+rbx-chat = "rbx_console:main"
 
 [project.optional-dependencies]
 test = [
@@ -59,6 +60,13 @@ test = [
 
 [tool.setuptools]
 zip-safe = false
+py-modules = [
+    "rbx_console",
+    "rob_box_mcp_tools.owner_event",
+    "rob_box_mcp_tools.voice_request",
+    "rob_box_mcp_tools.base",
+    "rob_box_mcp_tools.tools.web_search",
+]
 
 [tool.setuptools.packages.find]
 where = [
@@ -68,21 +76,12 @@ where = [
     "src/rob_box_dialog",
     "src/rob_box_dialog_host",
     "src/rob_box_music",
-    "src/rob_box_mcp_tools",
-    "src/rob_box_dialog_console",
 ]
-include = [
-    "rob_box_core*",
-    "rob_box_llm*",
-    "rob_box_harness*",
-    "rob_box_dialog*",
-    "rob_box_music*",
-    "rob_box_mcp_tools*",
-    "rob_box_dialog_console*",
-]  # dialog* - и _host; mcp_tools/tools.dir за main-package; dialog_console - консоль rbx-chat
+include = ["rob_box_core*", "rob_box_llm*", "rob_box_harness*", "rob_box_dialog*", "rob_box_music*"]  # dialog* - и _host
 exclude = ["*.test", "*.test.*"]
 
 [tool.setuptools.package-dir]
+rob_box_mcp_tools = "src/rob_box_mcp_tools/rob_box_mcp_tools"
 
 [tool.setuptools.package-data]
 "rob_box_dialog.phrases" = ["*.yaml"]
@@ -91,6 +90,18 @@ exclude = ["*.test", "*.test.*"]
 "rob_box_core" = ["py.typed", "dialog_msgs/*.msg"]
 "rob_box_core.migrations" = ["*.sql"]
 "rob_box_music" = ["data/*.json"]
-# Стенд консоли (ADR-0167 Ш3): loose-скрипты, которые грузит rbx-chat по файловым путям (как раньше из чекаута).
-"rob_box_mcp_tools.tools" = []
-"rob_box_dialog_console.data" = ["scripts/dialog/*.py", "scripts/dialogue/*.py"]
+
+[tool.setuptools.data-files]
+"share/rob_box_dialog_core/scripts/dialog" = [
+    "scripts/dialog/dry_stand.py",
+    "scripts/dialog/dry_marathon.py",
+    "scripts/dialog/e2e_db.py",
+    "scripts/dialog/e2e_tool_match.py",
+    "scripts/dialog/env_files.py",
+    "scripts/dialog/speech_format.py",
+    "scripts/dialog/speech_text.py",
+    "scripts/dialog/understanding_variants.py",
+]
+"share/rob_box_dialog_core/scripts/dialogue" = [
+    "scripts/dialogue/chat.py",
+]
