@@ -12,8 +12,10 @@
 #     rob_box_harness, rob_box_dialog, rob_box_dialog_host (связка хода: мост команд, порты диалога, память, каталог
 #     голосов, состояние музыки, разбор команд движения, фразы медиа - ADR-0167 Ш1г) и rob_box_music (чистая модель
 #     музыки: её знание читают фразы медиа);
-#   * из rob_box_mcp_tools - base, owner_event, voice_request и тул поиска tools.web_search (поиск колонки, ADR-0167 Ш3),
-#     поштучно (py-modules), без mcp_server/core/engine робота;
+#   * из rob_box_mcp_tools - base, owner_event, voice_request и нейтральные тулы tools.web_search (поиск колонки,
+#     ADR-0167 Ш3), tools.system (время/громкость/скорость/высота голоса) и tools.memory (память о людях) — поштучно
+#     (py-modules), без mcp_server/core/engine робота; системные тулы стенда (сухой стенд, консоль rbx-chat) идут
+#     из пакета, а не из src/ робота (граница ADR-0167 §2.1).
 # Пакет rob_box_mcp_tools здесь НЕПОЛНЫЙ: ставить это ядро в одно окружение с полным ROS-пакетом робота нельзя.
 # Список модулей сверяет тест src/rob_box_dialog/test/test_core_package_4245.py: каждый - без ROS на верхнем уровне.
 # Консоль стенда - entry point rbx-chat (rbx_console.py, из чекаута: скрипты стенда в пакет НЕ входят).
@@ -32,8 +34,8 @@ name = "rob-box-dialog-core"
 #        ни одного тула продукта; harness: load_system_prompt и AgentSpec.prompt_dir/system_prompt_file удалены (Ш1в).
 # 0.6.0: связка хода - пакет rob_box_dialog_host (ADR-0167 Ш1г-1); старые пути rob_box_voice - псевдонимы.
 # 0.7.0: старые пути rob_box_voice.core.* удалены, ядро без rob_box_voice (ADR-0167 Ш1г-2).
-# 0.7.2: Ш3 — провайдер STT MiniMax (rob_box_llm.stt_providers.minimax_provider), тул поиска
-#        rob_box_mcp_tools.tools.web_search, консоль-скрипт rbx-chat (добавка модулей, порт не сломан → patch).
+# 0.7.2: Ш3 — провайдер STT MiniMax (rob_box_llm.stt_providers.minimax_provider), нейтральные тулы
+#        rob_box_mcp_tools.tools.{web_search,system,memory}, консоль-скрипт rbx-chat (добавка модулей, порт не сломан → patch).
 version = "0.7.2"
 description = "Ядро диалога РОББОКСа без ROS: ход, адресация, мост команд LLM, память (ADR-0150, ADR-0160 §8)"
 license = "MIT"
@@ -66,6 +68,8 @@ py-modules = [
     "rob_box_mcp_tools.voice_request",
     "rob_box_mcp_tools.base",
     "rob_box_mcp_tools.tools.web_search",
+    "rob_box_mcp_tools.tools.system",
+    "rob_box_mcp_tools.tools.memory",
 ]
 
 [tool.setuptools.packages.find]
