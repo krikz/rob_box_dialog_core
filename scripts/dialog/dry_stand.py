@@ -189,15 +189,12 @@ class _FakeRosNode:
 
 
 def load_tool_module(module: str) -> types.ModuleType:
-    """``rob_box_mcp_tools.tools.<module>`` без ``tools/__init__`` (тот тянет rclpy через navigation): пакет-заглушка с
-    ``__path__``, сам модуль — настоящий."""
-    name = "rob_box_mcp_tools.tools"
-    if name not in sys.modules:
-        stub = types.ModuleType(name)
-        stub.__path__ = [str(_SRC / "rob_box_mcp_tools" / "rob_box_mcp_tools" / "tools")]
-        sys.modules[name] = stub
-    return importlib.import_module(f"{name}.{module}")
+    """``rob_box_mcp_tools.tools.<module>`` из ядра/пакета (ADR-0167 Ш3): tools/ теперь ROS-free пакет.
 
+    Прежняя заглушка (``__path__`` на ``_SRC``) обходила robots tools/__init__, тянувший rclpy; в ядре
+    tools/ — лёгкий пакет (search_web), поэтому импорт прямой: работает и из чекаута (ensure_paths кладёт
+    src/<пакет> в sys.path), и из установленного пакета."""
+    return importlib.import_module(f"rob_box_mcp_tools.tools.{module}")
 
 def load_memory_tools() -> types.ModuleType:
     return load_tool_module("memory")
