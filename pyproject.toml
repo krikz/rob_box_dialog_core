@@ -36,7 +36,9 @@ name = "rob-box-dialog-core"
 # 0.7.0: старые пути rob_box_voice.core.* удалены, ядро без rob_box_voice (ADR-0167 Ш1г-2).
 # 0.7.2: Ш3 — провайдер STT MiniMax (rob_box_llm.stt_providers.minimax_provider), нейтральные тулы
 #        rob_box_mcp_tools.tools.{web_search,system,memory}, консоль-скрипт rbx-chat (добавка модулей, порт не сломан → patch).
-version = "0.7.2"
+# 0.7.3: гипотезы STT (уверенность/альтернативы) — rob_box_core.stt_hypotheses, поля Utterance.confidence/alternatives
+#        (зеркало rob_box_dialog_msgs), чтение в address.heard_from/backlog.Heard (порт #4645 монорепо, порт не сломан → patch).
+version = "0.7.3"
 description = "Ядро диалога РОББОКСа без ROS: ход, адресация, мост команд LLM, память (ADR-0150, ADR-0160 §8)"
 license = "MIT"
 requires-python = ">=3.10"
