@@ -218,6 +218,10 @@ class Ports(Protocol):
         (:func:`stop_performance`)."""
         ...
 
+    def answer_perform(self, yes: bool) -> bool:
+        """Ответ «да/нет» на вопрос выступления о замене играющей музыки; ``True`` — выступление ждало ответа."""
+        ...
+
     def intent(self, turn_id: str, epoch: int, kind: str) -> None: ...
 
     def perform(self, turn_id: str, epoch: int, perf: Performance, edit: bool) -> Optional[Mapping[str, Any]]:
@@ -384,6 +388,17 @@ def stop_performance(ports: Any, how: str, keep_backing: bool = False) -> bool:
     if keep_backing and _accepts(stop, "keep_backing"):
         return bool(stop(how, keep_backing=True))
     return bool(stop(how))
+
+
+def answer_performance(engine: "TurnEngine", command: Tier1Command, snap: SessionSnapshot) -> None:
+    """Ответ на вопрос выступления — его владельцу; кадр и ``pending_ask`` снимаются вместе."""
+    if command.kind != "answer" or snap.top("PerformAsk") is None:
+        return
+    yes = command.args.get("value") == "yes"
+    taken = engine._ports.answer_perform(yes)
+    engine.session.pop_scene("PerformAsk")
+    engine.session.set_pending_ask(None)
+    engine._log.info(f"{LOG_MARK} answer {'да' if yes else 'нет'} → выступление: {taken}")
 
 
 def _accepts(fn: Callable[..., Any], name: str) -> bool:
@@ -1671,15 +1686,16 @@ def foreign_keys(window: Sequence[Any], turn: "_Turn", cmd: Command, snapshot: S
     """Имена, которыми нельзя обращаться к собеседнику хода: собеседник неподтверждён
     (:func:`foreign_name.unconfirmed`), а имена, которые модель видела в разговоре, - авторы реплик окна, подхвата и
     фона, лица в кадре из прочитанного в ходе (:func:`foreign_name.face_names`, #4388); ключи -
-    :func:`foreign_name.name_keys`.
+    :func:`foreign_name.name_keys`. У подтверждённого собеседника чужие имена лиц тоже запрещены: его имя даёт профиль,
+    не камера.
     Не считаются названные самим человеком в этой реплике и им же в ``register_speaker`` команды: «меня зовут Гриша» -
     ответ «Понял, Гриша» честен.
     Лица в кадре берутся и без снимка собеседника (:func:`foreign_name.named`: фраза без биометрии - инъекция, первая
     после рестарта): лицо в кадре не говорящий, пока голос не подтвердил имя (#4388, живой 05.11)."""
     speaker = snapshot.speaker
-    if foreign_name.named(speaker):
-        return frozenset()
     seen = list(foreign_name.face_names((*turn.seen, *turn.queried)))
+    if foreign_name.named(speaker):
+        return foreign_name.name_keys(seen) - foreign_name.name_keys([speaker.name])
     if foreign_name.unconfirmed(speaker):
         seen += [e.speaker for e in window if e.role == USER] + [who for who, _ in turn.heard]
         seen += [str(p.get("who") or "") for p in (*turn.recent, *turn.background)]
@@ -2244,6 +2260,7 @@ class TurnEngine:
         Политика перебивания читает тот же текст, по которому сработал ``command`` (``parsed``, :func:`tier1_of`)."""
         self._log.info(f"{LOG_MARK} tier1 kind={command.kind} args={dict(command.args)} turn={turn.turn_id}")
         turn.stage = "done"
+        answer_performance(self, command, snap)
         actions = tier1_actions(command, snap)
         stop = interrupt_for(command, parsed, snap)
         if stop.interrupts:
