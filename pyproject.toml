@@ -39,7 +39,9 @@ name = "rob-box-dialog-core"
 # 0.7.3: гипотезы STT (уверенность/альтернативы) — rob_box_core.stt_hypotheses, поля Utterance.confidence/alternatives
 #        (зеркало rob_box_dialog_msgs), чтение в address.heard_from/backlog.Heard (порт #4645 монорепо, порт не сломан → patch).
 # 0.7.4: сжатый ответ тула — обычный dict в recent_actions; mappingproxy не падает на JSON следующего хода (#4688).
-version = "0.7.4"
+# 0.7.5: sync монорепо #4671/#4672/#4673/#4679/#4680/#4691 — photo_send, чужое имя лица при фото, пропуск
+#        повторных чисел (_unsaid_count_prefix), rejected reason, answer_performance, сид материала со стилем.
+version = "0.7.5"
 description = "Ядро диалога РОББОКСа без ROS: ход, адресация, мост команд LLM, память (ADR-0150, ADR-0160 §8)"
 license = "MIT"
 requires-python = ">=3.10"
