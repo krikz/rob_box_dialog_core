@@ -81,6 +81,16 @@ class Ports:
         return self.perform_outcome
 
 
+class AnswerPorts(Ports):
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.answers_perform = []
+
+    def answer_perform(self, yes):
+        self.answers_perform.append(yes)
+        return True
+
+
 def _engine(ports, **kw):
     ids = iter(f"t{n}" for n in range(1, 100))
     return TurnEngine(Session("personality"), ports, system_prompt="Ты робот.", new_id=lambda: next(ids), **kw)
@@ -92,6 +102,20 @@ def _run(engine, text, source=VOICE):
 
 def _run_addressed(engine, addressed):
     return asyncio.run(engine.run(addressed))
+
+
+def test_3849_perform_answer_goes_to_owner_and_closes_ask_without_llm():
+    ports = AnswerPorts()
+    engine = _engine(ports)
+    engine.session.push_scene("PerformAsk", "code")
+    engine.session.set_pending_ask(Ask("yes_no", "Выключить и зачитать?"))
+
+    agg = _run(engine, "да")
+
+    assert ports.answers_perform == [True]
+    assert agg.llm_calls == 0 and ports.asked == []
+    assert engine.session.snapshot.top("PerformAsk") is None
+    assert engine.session.snapshot.pending_ask is None
 
 
 def test_bare_wake_is_reflex_only_zero_llm():
