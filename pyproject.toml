@@ -43,7 +43,8 @@ name = "rob-box-dialog-core"
 #        повторных чисел (_unsaid_count_prefix), rejected reason, answer_performance, сид материала со стилем.
 # 0.7.6: n903 — исправление remap ambulance → police_lights для сирены/мигалки (#4694).
 # 0.7.7: n311 «мол/дескать, тишина» не считается stop-claim'ом + n908 память как условие просьбы (#4694).
-version = "0.7.7"
+# 0.7.8: n810 rap с backing=beat накладывается на играющую музыку + n1009 сброс памяти говорившего после reset (#4733/#4734).
+version = "0.7.8"
 description = "Ядро диалога РОББОКСа без ROS: ход, адресация, мост команд LLM, память (ADR-0150, ADR-0160 §8)"
 license = "MIT"
 requires-python = ">=3.10"
