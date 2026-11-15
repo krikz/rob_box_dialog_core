@@ -42,7 +42,8 @@ name = "rob-box-dialog-core"
 # 0.7.5: sync монорепо #4671/#4672/#4673/#4679/#4680/#4691 — photo_send, чужое имя лица при фото, пропуск
 #        повторных чисел (_unsaid_count_prefix), rejected reason, answer_performance, сид материала со стилем.
 # 0.7.6: n903 — исправление remap ambulance → police_lights для сирены/мигалки (#4694).
-version = "0.7.6"
+# 0.7.7: n311 «мол/дескать, тишина» не считается stop-claim'ом + n908 память как условие просьбы (#4694).
+version = "0.7.7"
 description = "Ядро диалога РОББОКСа без ROS: ход, адресация, мост команд LLM, память (ADR-0150, ADR-0160 §8)"
 license = "MIT"
 requires-python = ">=3.10"
