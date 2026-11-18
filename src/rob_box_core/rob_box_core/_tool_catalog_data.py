@@ -597,8 +597,7 @@ TOOL_CATALOG_DATA: tuple[dict[str, Any], ...] = (   {   'llm_visible': True,
         'event_source': '',
         'name': 'get_robot_status',
         'description': 'Получить текущий статус робота (позиция, батарея, состояние '
-                       'систем). Отвечай фразой из message: если там сказано, что это '
-                       'поза симулятора, не называй её полом.',
+                       'систем).',
         'parameters': {   'type': 'object',
                           'properties': {},
                           'required': [],
