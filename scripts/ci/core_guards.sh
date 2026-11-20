@@ -19,6 +19,12 @@ CORE=(
 "$PY" scripts/lint/cc_budget.py "${CORE[@]}"
 "$PY" scripts/lint/class_budget.py "${CORE[@]}"
 "$PY" scripts/lint/temp_adr0148_check.py
+# Паспорт пакета не отстаёт от тега. TAG=vX.Y.Z — сверка с pyproject.toml; без TAG — вшитые случаи, файл не читается.
+if [ -n "${TAG:-}" ]; then
+  "$PY" scripts/lint/check_version_tag.py --tag "$TAG"
+else
+  "$PY" scripts/lint/check_version_tag.py --self-check
+fi
 if [ "${WITH_SEAM:-0}" = "1" ]; then
   "$PY" scripts/lint/seam_without_consumer.py
 fi

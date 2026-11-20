@@ -131,6 +131,19 @@ jobs:
       - name: CC budget, class budget, TEMP(ADR-0148)
         run: bash scripts/ci/core_guards.sh
 
+      - name: Tag matches pyproject version
+        # Паспорт pip берётся из pyproject.toml, не из имени тега. На ветке тега нет — вшитые случаи.
+        # Имя тега идёт через env, не через ${{ }} внутри run: ref_name не должен исполняться как shell.
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$REF_TYPE" = "tag" ]; then
+            python scripts/lint/check_version_tag.py --tag "$REF_NAME"
+          else
+            python scripts/lint/check_version_tag.py --self-check
+          fi
+
       - name: Robot checkout for the seam guard
         uses: actions/checkout@v7
         with:
