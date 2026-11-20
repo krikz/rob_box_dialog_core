@@ -153,9 +153,87 @@ class OllamaEmbedder:
         return self._available is True
 
 
+def _catalog_when_search_empty(
+    memory: "VoiceMemory",
+    fact_hits: List[Dict],
+    turn_hits: List[Dict],
+    limit: int,
+    speaker_id: Optional[str],
+    browse_when_empty: bool,
+) -> List[Dict]:
+    """Каталог фактов, только если поиск пуст и его попросили (#4956).
+
+    Подстрока «еда» не входит в «не ест лук», вектор на стенде мёртв
+    (Ollama нет), а после new_session окно реплик пустое — модель видит
+    «в памяти ничего нет». Каталог отдаём только по флагу и только когда оба
+    поиска пусты: иначе он вытеснил бы найденные реплики. Дефолт False, чтобы
+    прямой search() не ломал контракт #3890 (ложный запрос → []).
+    Каталог просит memory_search (browse_when_empty=True).
+    """
+    if browse_when_empty and not fact_hits and not turn_hits:
+        return _browse_facts(memory, limit, speaker_id=speaker_id)
+    return fact_hits + turn_hits
+
+
+def _browse_facts(
+    memory: "VoiceMemory",
+    limit: int,
+    speaker_id: Optional[str] = None,
+) -> List[Dict]:
+    """Каталог фактов говорящего, свежие сверху (#4956).
+
+    Детерминированный fallback без эмбеддингов (ADR-0148): вызывается
+    из ``search()`` только когда и ``_fact_search``, и ``_search_turns``
+    вернули пусто. Тот же скоуп спикера, что у ``get_facts``: запрошенный
+    ``speaker_id`` плюс legacy-строки с ``speaker_id IS NULL``;
+    ``speaker_id=None`` — все строки. ``score`` = 0.0, чтобы модель
+    отличала каталог от подстрочного попадания (``source="fact"``, 1.0).
+    """
+    if limit <= 0:
+        return []
+
+    where = ""
+    params: List[Any] = []
+    if speaker_id:
+        where = "WHERE (speaker_id = ? OR speaker_id IS NULL)"
+        params.append(speaker_id)
+    params.append(limit)
+
+    try:
+        with memory.lock:
+            rows = memory.conn.execute(
+                f"""
+                SELECT id, fact, category, speaker_id, updated_at
+                FROM voice_facts
+                {where}
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
+    except sqlite3.OperationalError:
+        return []
+
+    return [
+        {
+            "id": r["id"],
+            "role": "fact",
+            "content": r["fact"],
+            "session_id": None,
+            "speaker_id": r["speaker_id"],
+            "category": r["category"],
+            "timestamp": r["updated_at"],
+            "score": 0.0,
+            "source": "fact_browse",
+            "kind": "fact",
+        }
+        for r in rows
+    ]
+
 # ---------------------------------------------------------------------------
 # VoiceMemory
 # ---------------------------------------------------------------------------
+
 
 class VoiceMemory:
     """
@@ -587,6 +665,7 @@ class VoiceMemory:
         query: str,
         limit: int = 5,
         speaker_id: Optional[str] = None,
+        browse_when_empty: bool = False,
     ) -> List[Dict]:
         """
         Search stored user facts AND conversation turns (issue #2793).
@@ -614,6 +693,11 @@ class VoiceMemory:
                         ``speaker_id`` OR legacy global rows (NULL).
                         ``None`` returns all rows regardless of speaker
                         (used by the LLM with no current biometric context).
+            browse_when_empty: If True and both fact and turn searches are
+                        empty, return the speaker's fact catalog
+                        (``source="fact_browse"``, #4956) instead of ``[]``.
+                        Default False keeps the #3890 contract for direct
+                        callers.
 
         Returns:
             List of dicts: {id, session_id, role, content, timestamp,
@@ -622,7 +706,8 @@ class VoiceMemory:
             (``MemorySearchTool``) can tell a saved fact apart from a
             historical conversation line instead of presenting both as an
             undifferentiated "turn". ``source`` = "fact" | "fts" | "vec" |
-            "hybrid".
+            "hybrid" | "fact_browse" (только при ``browse_when_empty=True``
+            и пустом поиске, #4956).
         """
         if not query or not query.strip() or limit <= 0:
             return []
@@ -638,7 +723,16 @@ class VoiceMemory:
         for hit in turn_hits:
             hit.setdefault("kind", "turn")
 
-        return fact_hits + turn_hits
+        # #4956: решение о каталоге — в _catalog_when_search_empty, не в этом
+        # методе: ветка здесь подняла бы WMC класса выше baseline (ADR-0145).
+        return _catalog_when_search_empty(
+            self,
+            fact_hits,
+            turn_hits,
+            limit,
+            speaker_id,
+            browse_when_empty=browse_when_empty,
+        )
 
     def _search_turns(
         self,
