@@ -162,3 +162,28 @@ def test_default_search_on_miss_stays_empty(tmp_path) -> None:
         assert memory.search("еда", limit=5, speaker_id=SASHA, browse_when_empty=False) == []
     finally:
         memory.close()
+
+
+def test_memory_search_tool_requests_catalog(tmp_path) -> None:
+    """Инструмент memory_search зовёт search с browse_when_empty=True (#4956).
+
+    Прямой search() без флага на «еда» пуст (#3890). Тул обязан просить каталог,
+    иначе робот снова скажет «в памяти ничего нет».
+    """
+    import types
+
+    from rob_box_mcp_tools.tools.memory import MemorySearchTool
+
+    memory = _memory(tmp_path)
+    try:
+        memory.save_fact(ONION, category="preference", speaker_id=SASHA)
+        logger = types.SimpleNamespace(info=lambda *_a, **_k: None, error=lambda *_a, **_k: None)
+        node = types.SimpleNamespace(voice_memory=memory, get_logger=lambda: logger)
+        result = MemorySearchTool(node=node).execute(query="еда", speaker_id=SASHA)
+
+        assert result.success
+        contents = [r["content"] for r in result.data["results"]]
+        assert ONION in contents
+        assert all(r["source"] == "fact_browse" for r in result.data["results"])
+    finally:
+        memory.close()
