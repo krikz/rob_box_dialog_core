@@ -138,3 +138,17 @@ def test_every_change_is_an_event(session):
     session.reset()
     assert [e.change for e in events] == ["push_scene", "pop_scene", "set_voice", "reset"]
     assert events[-1].snapshot is session.snapshot
+
+
+def test_reset_bumps_session_generation_replace_epoch_does_not(session):
+    """ADR-0175 §1.2 / #5059: ``session_id`` reset не меняет, новую сессию отличает поколение.
+    Стоп (``replace_epoch``) — не новая сессия, поколение не трогает."""
+    assert session.snapshot.session_generation == 0
+    sid = session.snapshot.session_id
+    session.reset()
+    assert session.snapshot.session_generation == 1
+    assert session.snapshot.session_id == sid
+    session.replace_epoch()
+    assert session.snapshot.session_generation == 1
+    session.reset()
+    assert session.snapshot.session_generation == 2

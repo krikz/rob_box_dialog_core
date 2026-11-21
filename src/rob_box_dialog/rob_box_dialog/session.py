@@ -86,6 +86,9 @@ class SessionSnapshot:
     session_id: str
     epoch: int
     started_at: float
+    #: Поколение сессии: +1 на ``reset`` (новая сессия), ``replace_epoch`` (стоп) не трогает.
+    #: ``session_id`` reset не меняет — по нему новую сессию не отличить (ADR-0175 §1.2).
+    session_generation: int = 0
     scenes: Tuple[SceneFrame, ...] = ()
     voice: VoiceState = VoiceState()
     speaker: Optional[SpeakerRef] = None
@@ -216,7 +219,14 @@ class Session:
         Счётчик вопроса об имени (A29) сбрасывается: новая сессия — новый акт."""
         visible = self._snap.speaker_memory_visible if speaker_memory_visible is None else speaker_memory_visible
         self.identity_asked = {}
-        self._commit("reset", epoch=self._snap.epoch + 1, scenes=(), pending_ask=None, speaker_memory_visible=visible)
+        self._commit(
+            "reset",
+            epoch=self._snap.epoch + 1,
+            session_generation=self._snap.session_generation + 1,
+            scenes=(),
+            pending_ask=None,
+            speaker_memory_visible=visible,
+        )
 
     def replace_epoch(self) -> int:
         """Перебивание стопом (REPLACE, §6.2, ``interrupt.py``): эпоха + 1 — речь, ответ LLM и исходы действий

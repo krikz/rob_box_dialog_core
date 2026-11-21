@@ -51,7 +51,9 @@ name = "rob-box-dialog-core"
 # 0.7.13: version догнала тег; гард scripts/lint/check_version_tag.py не пускает тег vX.Y.Z мимо строки version.
 # 0.7.14: порт фиксов диалога (порт не сломан, patch): #5006 media.timeout_pending, #5007 DONE_CLAIMS["speed"],
 #         n211 unless_after, #4984 шаг тона после чужого слова, имя одиночного провайдера.
-version = "0.7.14"
+# 0.7.15: тег вышел со строкой 0.7.14 — паспорт отстал от тега (код тега не меняем).
+# 0.7.16: SessionSnapshot.session_generation +1 на reset, replace_epoch не трогает (ADR-0175 §1.2, #5059).
+version = "0.7.16"
 description = "Ядро диалога РОББОКСа без ROS: ход, адресация, мост команд LLM, память (ADR-0150, ADR-0160 §8)"
 license = "MIT"
 requires-python = ">=3.10"
