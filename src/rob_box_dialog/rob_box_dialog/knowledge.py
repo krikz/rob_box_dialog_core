@@ -706,7 +706,8 @@ TOOL_CLASSES: Mapping[str, str] = MappingProxyType({
         "set_volume",
     )},
     **{t: "action.media" for t in (
-        "dj_set", "edit_music", "generate_music", "music_library", "play_sound", "request_music", "stop_music",
+        "chimera_perform", "dj_set", "edit_music", "generate_music", "music_library", "play_sound",
+        "request_music", "stop_music",
     )},
     # долгие операции навигационного стека (Nav2/картирование): тот же дедлайн 120 с и непрерываемость
     **{t: "action.motion" for t in (
@@ -1048,7 +1049,8 @@ SOUND_UNNAMED: Tuple[str, ...] = (
     "robot_loop", "ui_activate", "ui_confirm", "ui_note_e")
 #: Основы группы ``sound``: «звук» плюс все названия звуков (порядок таблицы, без повторов).
 SOUND_STEMS: Tuple[str, ...] = tuple(dict.fromkeys(
-    ("звук",) + tuple(stem for _, stems in SOUND_ALIASES_RU for stem in stems)))
+#: «химер» открывает разовое выступление Химерой (ADR-0175 §2.1) без новой регулярки в грамматике музыки.
+    ("звук", "химер") + tuple(stem for _, stems in SOUND_ALIASES_RU for stem in stems)))
 #: Группа, которую открывает самопредставление («я Саша», «привет, я Борис», «меня зовут …»; ``words.introduces_self``).
 SELF_INTRO_GROUP = "people"
 #: Голос человека, а не робота: «запомни мой голос», «узнаёшь меня по голосу?» - биометрия собеседника (группа
@@ -1174,7 +1176,7 @@ TOOL_GROUPS: Mapping[str, ToolGroup] = MappingProxyType({
     # ``llm_visible=False``, срез голоса не меняется (``tools_view.groups_for(agent=...)``). Голое «покажи» основой не
     # берём («покажи CPU», «покажи кухню»): «покажи лица» открывает «лиц». id лица (8 hex) открывает группу без слов
     "faces": ToolGroup(FACES_STEMS, ("people_list", "person_photo", "name_person", "find_similar", "merge_people")),
-    "sound": ToolGroup(SOUND_STEMS, ("play_sound", "get_sound_info")),
+    "sound": ToolGroup(SOUND_STEMS, ("play_sound", "get_sound_info", "chimera_perform")),
     # анимация всегда видна (``TOOLS_ALWAYS``); группа — чтобы просьба «покажи анимацию …» была командой (В17)
     # глаголы восприятия («посмотри налево») — взгляд лица, а не движение базы (``MOTION_VERB_STEMS``);
     # «покажи» + что показать (``FACE_SHOW_*``) группу открывает ``tools_view.face_asked``
@@ -1696,6 +1698,12 @@ TOOL_PHRASES: Mapping[str, Mapping[str, Any]] = MappingProxyType({
     }),
     # стоп сета - то же, что стоп музыки, а не «Включаю музыку.» старта; платная генерация - фраза ожидания
     "dj_set": MappingProxyType({"done": DJ_DONE, "rejected": DJ_STOP_FAIL}),
+    # Химера (ADR-0175 §2.1): «Спел» — только sang=True (конец sing/play). Конец вызова и речи —
+    # «Химера сказала» (chimera.done). Пустое поле не читается как True.
+    "chimera_perform": MappingProxyType({
+        "done": ByData(("sang",), {(True,): "chimera.sang"}, "chimera.done"),
+        "rejected": "chimera.rejected", "cancelled": "chimera.cancelled", "timeout": "chimera.timeout",
+    }),
     # отказ пути (#4015): настоящая причина уже построена кодом музыки в ``message``; без неё - общий отказ класса
     "request_music": MappingProxyType({
         "done": GEN_WAIT, "rejected": ByData(("message",), {(None,): "media.rejected"}, "music.edit_said")}),
@@ -1809,7 +1817,10 @@ class OwnerText:
 #: «Включаю музыку.» — тихая подмена. Тул -> поля.
 OUTCOME_OWNER_TEXT: Mapping[str, OwnerText] = MappingProxyType({
     **{tool: OwnerText(whole="source_message", note="source_note") for tool in ("request_music", "generate_music")},
-    "dj_set": OwnerText(note="source_note")})
+    "dj_set": OwnerText(note="source_note"),
+    # Химера: фраза уже выбрана таблицей по sang — whole её не подменяет. note — примечание пути, если есть.
+    "chimera_perform": OwnerText(note="source_note"),
+})
 #: Тулы пульта Telegram, чей успех уносит в чат картинку (#4469): ``photo_id`` - id лица, ``caption`` - подпись; чат шлёт
 #: ``DialogOutput(kind=photo)`` с id, картинку бот забирает у владельца лиц (``/perception/people``) байтами. У
 #: ``find_similar`` в данных ещё ``photo_kind=collage``: это коллаж кандидатов, а не снимок лица.
