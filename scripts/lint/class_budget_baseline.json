@@ -16,7 +16,7 @@
       "methods": 21
     },
     "src/rob_box_dialog_host/rob_box_dialog_host/voice_memory.py:VoiceMemory": {
-      "wmc": 142,
+      "wmc": 141,
       "methods": 31
     }
   }
