@@ -521,8 +521,10 @@ class VoiceStepWords:
     направление уже известно (STT его искажает: «тараторь» → «ораторь»); слово другой команды Tier-1 (стоп, тишина,
     громкость) пересказом не бывает. ``simile`` - «как …» до конца части: образ просьбы («как диктор в старом кино»),
     только если шаг в реплике есть («говори как пират» - не шаг); ``likeness`` - основы образов, которые сами шаг, но
-    только после «как» («как диктор» - тон ниже; голое «диктор» - не просьба, и срез тулов по нему голос не
-    открывает). ``filler`` - служебные слова сверх ``GRAMMAR_FILLER`` и ``STOP_LEAD_WORDS``; ``joins`` - союзы между
+    только после «как» («говори как диктор» - тон ниже; голое «как диктор» и «скажи как диктор» - не просьба). Канал
+    склеивает «говори басом» в чужое слово, и до образа доходит «как диктор» (#4984): чужое слово до образа шаг не
+    отменяет, слово таблицы - отменяет. Голое «диктор» - не просьба, и срез тулов по нему голос не открывает.
+    ``filler`` - служебные слова сверх ``GRAMMAR_FILLER`` и ``STOP_LEAD_WORDS``; ``joins`` - союзы между
     частями: непокрытая часть после союза или знака препинания - новая просьба (``Tier1Command.rest``)."""
 
     requests: Mapping[Tuple[str, str], Tuple[str, ...]]
@@ -568,6 +570,7 @@ VOICE_STEP = VoiceStepWords(
     manner_gap=("так",),
     inverse=("наоборот", "оборот"),
     simile=("как",),
+    # «диктор» - образ, не просьба: шаг даёт «говори как диктор» и (#4984) чужое слово перед «как диктор».
     likeness=MappingProxyType({("set_pitch", "lower"): ("диктор",)}),
     filler=("голосом", "голос", "тоном", "тон", "темпом", "темп", "речь", "речи", "теперь", "лучше", "более", "чем",
             "можешь", "своим", "режиме", "с", "со"),
@@ -1965,7 +1968,8 @@ SEARCH_PROMISE_PHRASE = "command.search_promise"
 #: :data:`DONE_CLAIM_HINT`; повтора нет - ложные слова не звучат, код говорит правду: ничего не сделано
 #: (:data:`DONE_CLAIM_PHRASE`).
 VIOLATION_DONE_CLAIM = "done_claim"
-DONE_CLAIM_HINT = ("в speech сказано, что действие уже сделано («удалил», «сохранил точку», «поехал») или обещано"
+DONE_CLAIM_HINT = ("в speech сказано, что действие уже сделано («удалил», «сохранил точку», «поехал», «говорю"
+                   " медленнее») или обещано"
                    " («пришлю снимки»), а в actions нет"
                    " тула, что его делает: слова без действия - неправда. Нужно действие - положи тул в actions без"
                    " speech (о сделанном скажет код по результату); тула нет в перечне хода - не утверждай, а скажи,"
@@ -2945,14 +2949,18 @@ PROGRESS_PHRASES: Mapping[str, str] = MappingProxyType({"llm": PROGRESS_LLM_PHRA
 #: — промежуточная фраза и фраза потолка по факту: прежняя музыка звучит, новая собирается. Ключи класса действия.
 MUSIC_REPLACE_PHRASES: Mapping[str, str] = MappingProxyType({"progress": "media.progress_replace",
                                                             "timeout": "media.timeout_replace"})
+#: Срок класса ``LATE_SPOKEN_CLASSES`` истёк, а владелец ещё не сказал исход (#5006, n604: трек встал через 216 мс
+#: после «Музыка пока не заиграла.»). Это «ещё собираю», не отказ: отказ ``media.timeout`` говорит роутер, когда
+#: события старта нет (``music.not_started``). Своя фраза тула (``play_sound`` → ``sound.timeout``) не подменяется.
+MEDIA_STILL_WORKING_PHRASE = "media.timeout_pending"
 #: Тулы, что заказывают новую музыку (``dj_set`` — кроме стопа; стоп и правка текущего трека ничего не собирают).
 MUSIC_STARTING_TOOLS: Tuple[str, ...] = ("dj_set", "request_music", "generate_music")
 #: Потолок истёк в ожидании LLM - фраза с именем провайдера; провайдер неизвестен - ``understand.timeout``.
 CEILING_PHRASE = "understand.ceiling"
 #: Цепочка провайдеров отказала (провайдер не жив) - фраза с его именем сразу, а не ожидание потолка.
 PROVIDER_FAILED_PHRASE = "understand.provider_failed"
-PHRASE_KEYS = PHRASE_KEYS + (CEILING_PHRASE, PROVIDER_FAILED_PHRASE, *PROGRESS_PHRASES.values(),
-                             *MUSIC_REPLACE_PHRASES.values())
+PHRASE_KEYS = PHRASE_KEYS + (CEILING_PHRASE, PROVIDER_FAILED_PHRASE, MEDIA_STILL_WORKING_PHRASE,
+                             *PROGRESS_PHRASES.values(), *MUSIC_REPLACE_PHRASES.values())
 #: Журнал смены (решение Шифу 27.10 «можно просто вести лог событий и туда смотреть»; ``shift_log``): в памяти
 #: процесса, не дольше окна и не больше записей кольца; новая сессия разговора его не чистит, рестарт процесса - да.
 SHIFT_LOG_WINDOW_S = 12 * 3600.0
@@ -3060,7 +3068,9 @@ class MusicPromise:
     ``MUSIC_PROMISE_WINDOW`` словах рядом (с любой стороны) есть слово с основой из ``near`` («сделаю» + «потише»,
     «включу» + «музыку»); ``tools`` - тулы, что обещание исполняют; ``perform`` - выступление (песня под подложку)
     тоже исполняет; ``unless_before`` - слова, после которых (вплотную) глагол из ``with_near`` обещанием не считается
-    («скажу шёпотом»: шёпотом будет речь, а не музыка). Слова - целые, строчные, без «ё»; основа ``near`` - начало слова."""
+    («скажу шёпотом»: шёпотом будет речь, а не музыка); ``unless_after`` - слова в окне ПОСЛЕ него, при которых он
+    обещанием не считается («запомнил двоих»: объект - счёт, а не новая запись). Слова - целые, строчные, без «ё»;
+    основа ``near`` - начало слова."""
 
     alone: Tuple[str, ...] = ()
     with_near: Tuple[str, ...] = ()
@@ -3068,6 +3078,10 @@ class MusicPromise:
     tools: Tuple[str, ...] = ()
     perform: bool = False
     unless_before: Tuple[str, ...] = ()
+    #: Слова в ``MUSIC_PROMISE_WINDOW`` словах ПОСЛЕ глагола из ``with_near``, при которых он обещанием не считается.
+    #: Пусто у всех, кроме ``DONE_CLAIMS["remember_person"]``: «запомнил двоих», «запомнил по голосу двоих» называют
+    #: счёт уже записанного, а не новую запись человека.
+    unless_after: Tuple[str, ...] = ()
 
 
 #: Слова о музыке, рядом с которыми глагол «включу/выключу/поставлю» обещает музыку (уже, чем ``MUSIC_STEMS``: «бит» -
@@ -3254,6 +3268,16 @@ SEARCH_PROMISES: Mapping[str, MusicPromise] = MappingProxyType({
 #: записи человека - пустое обещание (#4541, живой ход 08.11 07:00Z: «Голос, выходит, детский - так и буду тебя
 #: узнавать», ``actions=[]``). Слова - целые, строчные, без «ё».
 DONE_CLAIM_UNLESS_BEFORE: Tuple[str, ...] = ("уже", "не", "раньше", "ранее")
+#: Объект «запомнил» - СЧЁТ уже записанного, а не человек и не его голос (#n211, марафон 21.11, run 44875774940:
+#: «Сегодня по голосу я запомнил двоих. Саша, это ты, и Борис…» - честный отчёт по БД акта, а правило #4541 приняло
+#: «голос» рядом с «запомнил» за заявление о новой записи и заменило речь фразой отказа). Слово из этого списка в окне
+#: после глагола снимает ``remember_person``: «запомнил двоих», «запомнил по голосу двоих». «запомнил этот голос»,
+#: «запомнил голос Бориса», «запомнил тебя по голосу» счёта в окне не несут и остаются заявлением о записи. Голое
+#: «запомнил тебя/его/её/вас» правило не ловит: в окне нет основы «голос»/«лиц».
+REMEMBER_PERSON_COUNT_AFTER: Tuple[str, ...] = (
+    "одного", "одну", "одно", "двоих", "двух", "двое", "троих", "трех", "трое", "четверых", "четырех", "пятерых",
+    "шестерых", "семерых", "восьмерых", "девятерых", "десятерых", "нескольких", "несколько", "многих", "много", "всех",
+    "все", "никого", "пару")
 PERSON_RECORD_TOOLS: Tuple[str, ...] = ("register_speaker", "name_person")
 DONE_CLAIMS: Mapping[str, MusicPromise] = MappingProxyType({
     "delete": MusicPromise(
@@ -3268,12 +3292,15 @@ DONE_CLAIMS: Mapping[str, MusicPromise] = MappingProxyType({
         tools=("save_waypoint",),
         unless_before=DONE_CLAIM_UNLESS_BEFORE),
     # запомнить человека (#4541): подкрепляют голос (``register_speaker``) и лицо (``name_person``); ``memory_save``
-    # хранит факт текстом и узнавать человека не научит - его тут нет. «запомнил» + «точк» - ``waypoint_save`` выше
+    # хранит факт текстом и узнавать человека не научит - его тут нет. «запомнил» + «точк» - ``waypoint_save`` выше.
+    # «запомнил» + слово о голосе/лице - заявление о записи (#4541). Счёт в окне после глагола - отчёт о содержимом
+    # памяти, не запись: «запомнил двоих по голосу» (n211 21.11). «запомнил этот голос/голос Бориса» счёта не несёт.
     "remember_person": MusicPromise(
         with_near=("запомнил", "запомнила"),
         near=("голос", "лиц"),
         tools=PERSON_RECORD_TOOLS,
-        unless_before=DONE_CLAIM_UNLESS_BEFORE),
+        unless_before=DONE_CLAIM_UNLESS_BEFORE,
+        unless_after=REMEMBER_PERSON_COUNT_AFTER),
     "recognize_person": MusicPromise(
         with_near=("буду", "будем"),
         near=("узнава",),
@@ -3299,6 +3326,20 @@ DONE_CLAIMS: Mapping[str, MusicPromise] = MappingProxyType({
         with_near=("сделал", "сделала", "поправил", "поправила"),
         near=MUSIC_PROMISES["volume"].near,
         tools=MUSIC_PROMISES["volume"].tools,
+        unless_before=DONE_CLAIM_UNLESS_BEFORE),
+    # темп речи (#5007, акт 4 n409, run 44890078495: «Хорошо, говорю медленнее…» при actions=[], set_speed в срезе
+    # был, строки ``[set_speed]`` нет). Настоящее и прошедшее об уже сменённой скорости - утверждение о сделанном:
+    # честную фразу строит код по результату ``set_speed`` (``speed.slower`` / ``speed.faster``) и говорит её после
+    # тула, не в команде. Будущее («заговорю помедленнее», «замедлюсь») - обещание ``VOICE_PROMISES["speed"]``, не этот
+    # вид. Голая фраза кода «Говорю медленнее.» / «Говорю быстрее.» - те же слова, что ложь n409, и та же таблица её
+    # ловит: её говорит код, в речь команды она не попадает. «Тараторю» без сравнительной рядом - не утверждение:
+    # сравнительная нужна в окне, как у остальных ``with_near``.
+    "speed": MusicPromise(
+        alone=("замедлился", "замедлилась", "ускорился", "ускорилась", "затараторил", "затараторила"),
+        with_near=("говорю", "говорим", "говоришь", "заговорил", "заговорила", "заговорили", "стал", "стала",
+                   "стали", "тараторю", "тараторим", "замедлил", "замедлила", "ускорил", "ускорила"),
+        near=("помедленн", "медленнее", "побыстр", "быстрее"),
+        tools=("set_speed",),
         unless_before=DONE_CLAIM_UNLESS_BEFORE),
 })
 #: Причина нарушения «пустая команда»: ни речи, ни вопроса, ни действий, ни выступления, и не ``passed``. Это нарушение
@@ -4263,3 +4304,37 @@ def resolve_wake_word_namespaces(
     personality = loaded.get("personality") or list(personality_fallback)
     operator = loaded.get("operator") or list(operator_fallback)
     return personality, operator
+
+
+def dialog_words() -> FrozenSet[str]:
+    """Слова таблиц этого модуля, строчными, без «ё».
+
+    Один обход значений модуля (не классов и не приватных имён): грамматика шага отличает слово таблицы от чужого
+    (#4984). Докстринги и комментарии в обход не входят.
+    """
+    return _DIALOG_WORDS
+
+
+def _dialog_tokens(value: Any, seen: set) -> Iterable[str]:
+    """Токены значения таблицы: строка режется, отображение и набор обходятся, каждый объект один раз."""
+    if id(value) in seen or isinstance(value, (bytes, int, float, bool, type(None), type)):
+        return
+    seen.add(id(value))
+    if isinstance(value, str):
+        yield from (token.lower().replace("ё", "е") for token in _WORD_TOKEN.findall(value))
+        return
+    nested: Any = ()
+    if isinstance(value, Mapping):
+        nested = tuple(value.keys()) + tuple(value.values())
+    elif isinstance(value, (Sequence, set, frozenset)):
+        nested = value
+    elif hasattr(value, "__dataclass_fields__"):
+        nested = tuple(getattr(value, name) for name in value.__dataclass_fields__)
+    for item in nested:
+        yield from _dialog_tokens(item, seen)
+
+
+_WORD_TOKEN = re.compile(r"[\w-]+", re.UNICODE)
+_DIALOG_WORDS: FrozenSet[str] = frozenset(_dialog_tokens(tuple(
+    value for name, value in tuple(globals().items())
+    if not name.startswith("_") and not isinstance(value, type)), set()))
