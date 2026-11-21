@@ -49,7 +49,9 @@ name = "rob-box-dialog-core"
 # 0.7.11: search(..., browse_when_empty=True) отдаёт каталог фактов, когда подстрока и реплики пусты (#4956, порт из монорепо).
 # 0.7.12: тег вышел со строкой 0.7.11 — паспорт пакета врал (pip show / importlib.metadata). Код тега не меняем.
 # 0.7.13: version догнала тег; гард scripts/lint/check_version_tag.py не пускает тег vX.Y.Z мимо строки version.
-version = "0.7.13"
+# 0.7.14: порт фиксов диалога (порт не сломан, patch): #5006 media.timeout_pending, #5007 DONE_CLAIMS["speed"],
+#         n211 unless_after, #4984 шаг тона после чужого слова, имя одиночного провайдера.
+version = "0.7.14"
 description = "Ядро диалога РОББОКСа без ROS: ход, адресация, мост команд LLM, память (ADR-0150, ADR-0160 §8)"
 license = "MIT"
 requires-python = ">=3.10"
