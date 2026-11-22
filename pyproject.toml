@@ -12,7 +12,7 @@
 #     rob_box_harness, rob_box_dialog, rob_box_dialog_host (связка хода: мост команд, порты диалога, память, каталог
 #     голосов, состояние музыки, разбор команд движения, фразы медиа - ADR-0167 Ш1г) и rob_box_music (чистая модель
 #     музыки: её знание читают фразы медиа);
-#   * из rob_box_mcp_tools - base, owner_event, voice_request и нейтральные тулы tools.web_search (поиск колонки,
+#   * из rob_box_mcp_tools - base, owner_event, voice_request, tool_outcome (строка исхода тула, #5092) и нейтральные тулы tools.web_search (поиск колонки,
 #     ADR-0167 Ш3), tools.system (время/громкость/скорость/высота голоса) и tools.memory (память о людях) — поштучно
 #     (py-modules), без mcp_server/core/engine робота; системные тулы стенда (сухой стенд, консоль rbx-chat) идут
 #     из пакета, а не из src/ робота (граница ADR-0167 §2.1).
@@ -85,6 +85,7 @@ py-modules = [
     "rob_box_mcp_tools.owner_event",
     "rob_box_mcp_tools.voice_request",
     "rob_box_mcp_tools.base",
+    "rob_box_mcp_tools.tool_outcome",
     "rob_box_mcp_tools.tools.web_search",
     "rob_box_mcp_tools.tools.system",
     "rob_box_mcp_tools.tools.memory",
