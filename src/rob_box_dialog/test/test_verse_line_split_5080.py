@@ -2,9 +2,10 @@
 
 Промпт велит «каждая строка куплета — с новой строки», а ``_perform`` перевод строки не режет. Один сегмент с ``\\n``
 внутри ниже ``SEGMENTS_MIN`` — ``bad_segments`` и «Не понял, как это сделать», хотя строк в тексте больше одной.
-Код режет рэп и стих по строкам до проверки числа (:func:`rob_box_dialog.command._split_verse_lines`), тем же приёмом,
-что :func:`_fit_segments` и :func:`_fit_expression_count`. ``SEGMENTS_MIN`` не меняется: сегмент одной строкой
-по-прежнему честный отказ. Строки выдуманы, не из песен."""
+Код режет рэп и стих по строкам до проверки числа (:func:`rob_box_dialog.command._split_verse_lines`) только когда
+сегментов меньше ``SEGMENTS_MIN`` — тем же приёмом, что :func:`_fit_segments` и :func:`_fit_expression_count`.
+Уже валидное число сегментов не трогается: нарезка TTS и потолок ``SEGMENTS_MAX`` остаются на сегментах, не на строках.
+``SEGMENTS_MIN`` не меняется: сегмент одной строкой по-прежнему честный отказ. Строки выдуманы, не из песен."""
 
 from rob_box_core.tool_catalog import TOOL_CATALOG
 from rob_box_dialog import knowledge as kn
@@ -50,12 +51,31 @@ def test_5080_tale_and_song_keep_a_newline_inside_one_segment():
     assert not any(":lines]" in note for note in (*song.dropped, *tale.dropped))
 
 
-def test_5080_poem_splits_like_rap_and_keeps_the_role_of_its_segment():
-    cmd = _ok(
-        "poem", ["\n".join(LINES[:2]), "Третья строфа целиком"], cast=[{"name": "Заяц"}], role_per_segment=["", "Заяц"]
-    )
-    assert cmd.perform.segments == (*LINES[:2], "Третья строфа целиком")
-    assert cmd.perform.role_per_segment == ("", "", "Заяц")
+def test_5080_valid_poem_is_not_split_and_keeps_the_role_of_its_second_segment():
+    """Два сегмента — уже не ниже ``SEGMENTS_MIN``. Перевод строки внутри первого не режется, роль второго цела."""
+    first = "\n".join(LINES[:2])
+    cmd = _ok("poem", [first, "Третья строфа целиком"], cast=[{"name": "Заяц"}], role_per_segment=["", "Заяц"])
+    assert cmd.perform.segments == (first, "Третья строфа целиком")
+    assert cmd.perform.role_per_segment == ("", "Заяц")
+    assert not any(":lines]" in note for note in cmd.dropped)
+
+
+def test_5080_rap_of_three_segments_two_lines_each_is_not_split():
+    """Форма фикстуры стенда: три уже валидных сегмента по две строки. Рез по строкам дал бы шесть и сменил бы TTS."""
+    rights = ("Нос мокрый от дождя", "Ухо слушает грозу", "Кот спит на капусте")
+    segments = [f"{left}\n{right}" for left, right in zip(LINES, rights)]
+    cmd = _ok("rap", segments, backing="beat")
+    assert cmd.perform.segments == tuple(segments)
+    assert not any(":lines]" in note for note in cmd.dropped)
+
+
+def test_5080_seven_by_two_stays_under_segments_max():
+    """Семь сегментов по две строки (14 строк) валидны. Счёт строк упёрся бы в ``SEGMENTS_MAX`` и отверг команду."""
+    segments = [f"строка {i} а\nстрока {i} б" for i in range(7)]
+    cmd = _ok("rap", segments, backing="beat")
+    assert cmd.perform.segments == tuple(segments)
+    assert len(cmd.perform.segments) <= kn.SEGMENTS_MAX
+    assert not any(":lines]" in note for note in cmd.dropped)
 
 
 def test_5080_segments_max_still_rejects_too_many_lines():
