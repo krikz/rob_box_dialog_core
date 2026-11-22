@@ -25,7 +25,8 @@ from rob_box_dialog.agents import agent_spec, tools_for
 from rob_box_dialog.command import Command, bare_answer
 from rob_box_dialog.session import SessionSnapshot
 from rob_box_dialog import phrases
-from rob_box_dialog.words import asks_robot_to_act, has_form, has_speech_manner, has_word, introduces_self, without_forms
+from rob_box_dialog.words import (asks_robot_to_act, has_form, has_speech_manner, has_word, introduces_self,
+                                  name_tokens, without_forms)
 
 
 def groups_for(snapshot: SessionSnapshot, text: str, carry: Sequence[str] = (),
@@ -186,6 +187,26 @@ def music_asked(text: str) -> bool:
     return has_word(text or "", music.stems) or has_form(text or "", music.forms)
 
 
+def speech_asked(text: str) -> bool:
+    """Просил ли человек в ЭТОЙ реплике говорить (#5094, n906): глагол говорения словом целиком
+    (``knowledge.SPEECH_ASK_VERBS``: «расскажи», «скажи», «объясни», «ответь», «прочти», «перескажи»). «не
+    рассказывай» и «без слов» просьбой не являются. «покажи анимацию» глагола говорения не содержит. Решает по тексту
+    ЧЕЛОВЕКА, не по ответу модели. Читает ``command_form``: такой ход нельзя закрыть одной мигалкой
+    (``Form.needs_speech``)."""
+    tokens = name_tokens(text)
+    negation = set(kn.SPEECH_ASK_NEGATION)
+    return any(token in kn.SPEECH_ASK_VERBS and (i == 0 or tokens[i - 1] not in negation)
+               for i, token in enumerate(tokens))
+
+
+def library_asked(text: str) -> bool:
+    """Просил ли человек в ЭТОЙ реплике найти что-то в библиотеке (#5093, n705): основа «библиотек» и глагол поиска
+    словом целиком (``knowledge.LIBRARY_REQUEST_VERBS``: «найди», «поищи», «отыщи»). «запомни, что…» глагола поиска не
+    содержит — запись памяти остаётся открытой. Решает по тексту ЧЕЛОВЕКА, не по ответу модели. Читает
+    ``command_form``: такой ход закрывает ``memory_save`` (``Form.library``)."""
+    return has_word(text or "", ("библиотек",)) and has_form(text or "", kn.LIBRARY_REQUEST_VERBS)
+
+
 def voice_named(text: str, voices: Sequence[str] = ()) -> bool:
     """Назван ли в ЭТОЙ реплике голос реестра по имени (``voices`` — id, название, алиасы, каждое целым словом): «спой
     голосом Алисы». Такой голос звучит только речью робота (TTS): путь пения с ним — живое выступление, а не генерация
@@ -293,5 +314,5 @@ def available_tools(snapshot: SessionSnapshot, caps: Optional[Any] = None, agent
 
 
 __all__ = ["asked_groups", "available_tools", "catalogs_asked", "command_groups", "face_asked", "groups_for",
-           "motion_named", "motion_refusal", "music_asked", "needs_words", "requested_groups", "robot_asked",
-           "show_asked", "silent_asked", "voice_asked", "voice_named", "widen_for"]
+           "library_asked", "motion_named", "motion_refusal", "music_asked", "needs_words", "requested_groups",
+           "robot_asked", "show_asked", "silent_asked", "speech_asked", "voice_asked", "voice_named", "widen_for"]

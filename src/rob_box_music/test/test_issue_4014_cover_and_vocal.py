@@ -23,8 +23,6 @@ from rob_box_music.source import (
     source_candidates,
 )
 
-pytestmark = pytest.mark.unit
-
 HILL = CoverWork(
     "Running Up That Hill", "runningu", "balalaika", "Running Up That Hill", named=True
 )
