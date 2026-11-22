@@ -93,6 +93,7 @@ from rob_box_dialog import identity_ask
 from rob_box_dialog import knowledge as kn
 from rob_box_dialog import memory
 from rob_box_dialog import pickup_parties
+from rob_box_dialog import siren_ask
 from rob_box_dialog.voice_warmth import no_warm_voices
 from rob_box_dialog import state_claim
 from rob_box_dialog import theme_switch
@@ -120,8 +121,8 @@ from rob_box_dialog.speaker_adapter import asks_recognized, known_voice_register
 from rob_box_dialog.window_reset import WindowGuard, reset_if_idle, reset_window
 from rob_box_dialog.words import (asks_own_memory_condition, asks_question, asks_to_listen, has_form, has_word,
                                   music_stop_claimed, same_stop_rest)
-from rob_box_dialog.tools_view import (available_tools, catalogs_asked, music_asked, needs_words, robot_asked,
-                                       show_asked, voice_asked, voice_named)
+from rob_box_dialog.tools_view import (available_tools, catalogs_asked, library_asked, music_asked, needs_words,
+                                       robot_asked, show_asked, speech_asked, voice_asked, voice_named)
 from rob_box_dialog.turn_log import (PERFORM_STARTED, TOOL, USER, TurnAggregate, TurnLog, phrase_label, results_of,
                                      speaker_label)
 
@@ -440,11 +441,22 @@ def command_form(turn: "_Turn", snapshot: SessionSnapshot, voices: Voices = (), 
     ``(id, название, *алиасы)``, как у Tier-1; id, название и каждый алиас - отдельные имена: слово ищется целиком
     по каждому, а не по склейке); ``sing`` — путь пения, решённый кодом до модели (:func:`sing_route`);
     живое пение при играющей музыке (``SessionSnapshot.music_playing``) — поверх неё (``Form.sing_over``, n810);
+    «химер» в реплике живого пения — семья ``chimera`` (``knowledge.chimera_named``, #5074);
     подложка сказки, анекдота и стиха — только когда человек в этой реплике назвал музыку
-    (``tools_view.music_asked``); песня и рэп ставят её по смыслу (``knowledge.PERFORM_BACKING_BY_KIND``)."""
+    (``tools_view.music_asked``); песня и рэп ставят её по смыслу (``knowledge.PERFORM_BACKING_BY_KIND``).
+    ``library`` — реплика просит найти в библиотеке (``tools_view.library_asked``): ``memory_save`` в этом ходе
+    закрыт. ``needs_speech`` — реплика просит говорить (``tools_view.speech_asked``): одну мигалку ход не принимает."""
     names = tuple(name for entry in voices for name in entry if name)
-    return Form(passed=turn.pickup, voice=voice_asked(snapshot, turn.text, names), sing=sing,
-                sing_over=bool(sing) and snapshot.music_playing, backing=music_asked(turn.text))
+    return Form(
+        passed=turn.pickup,
+        voice=voice_asked(snapshot, turn.text, names),
+        sing=sing,
+        sing_over=bool(sing) and snapshot.music_playing,
+        backing=music_asked(turn.text),
+        library=library_asked(turn.text),
+        needs_speech=speech_asked(turn.text),
+        text=turn.text,
+    )
 
 
 #: Путь пения хода от хоста: ``(реплика, прошлые реплики человека в окне, играет ли музыка) -> id кандидата``
@@ -489,13 +501,12 @@ async def sing_route(engine: "TurnEngine", turn: "_Turn", snap: SessionSnapshot)
 
 
 def form_tools(tools: Sequence[Any], form: Form, agent: str, owners: Optional[Sequence[str]] = None) -> Tuple[Any, ...]:
-    """Тулы хода в форме пути пения: закрытые путём убраны, тул, который путь требует (``generate_music``), добавлен,
-    если его срезала обрезка по ``TOOLS_VISIBLE_MAX`` (а агенту он доступен при владельцах продукта ``owners``)."""
+    """Тулы хода в форме: закрытые формой (путь пения, библиотечная просьба) убраны, тул, который путь пения требует
+    (``generate_music``), добавлен, если его срезала обрезка по ``TOOLS_VISIBLE_MAX`` (а агенту он доступен при
+    владельцах продукта ``owners``)."""
+    kept = [t for t in tools if t.name not in form.closed_tools()]
     sing = form.sing_form
-    if sing is None:
-        return tuple(tools)
-    kept = [t for t in tools if t.name not in sing.closed_tools]
-    need = sing.needs_tool
+    need = sing.needs_tool if sing is not None else ""
     if need and need not in {t.name for t in kept} and need in tools_for(agent_spec(agent), owners):
         kept.append(get_tool(need))
     return tuple(kept)
@@ -897,8 +908,12 @@ async def understand(engine: "TurnEngine", turn: "_Turn", snap: SessionSnapshot)
     form = command_form(turn, snap, engine._voices(), await sing_route(engine, turn, snap))
     over = " поверх играющего" if form.sing_over else ""
     kinds = "" if form.backing else " подложка=песня,рэп"  # сказка, анекдот, стих - без бита, музыку не просили
-    engine._log.info(f"{LOG_MARK} форма команды: закрыты={list(form.closed()) or '-'} пение={form.sing or '-'}{over}"
-                     f"{kinds} turn={turn.turn_id}")
+    tools = list(form.closed_tools()) or "-"
+    speech = " речь=нужна" if form.needs_speech else ""
+    engine._log.info(
+        f"{LOG_MARK} форма команды: закрыты={list(form.closed()) or '-'} пение={form.sing or '-'}{over}"
+        f"{kinds} тулы={tools}{speech} turn={turn.turn_id}"
+    )
     with turn_form(form):
         await engine._understand(turn, snap)
 
@@ -1146,6 +1161,7 @@ def considered(engine: "TurnEngine", turn: "_Turn", cmd: Command, last: bool) ->
     fresh = switched_theme(log, snapshot, turn, fresh)  # просьба сменить тему сета - действием кода (#4347)
     fresh = their_photos(engine, log, turn, fresh)  # «пришли их» без id (#4505)
     fresh = corrected_ambulance(log, turn, fresh)  # сирена/мигалка: ambulance → police_lights (#4694)
+    fresh = asked_siren(log, turn, fresh)  # названный звук и мигалка, которых модель не заказала (#5020)
     names = foreign_keys(engine.log.window(exclude=turn.turn_id), turn, fresh, snapshot)
     fresh = unnamed_without_retry(log, turn, fresh, names, last)
     fresh = unclaimed_without_retry(log, turn, fresh, snapshot.agent, last)
@@ -1242,6 +1258,18 @@ def corrected_ambulance(log: Any, turn: "_Turn", cmd: Command) -> Command:
     return replace(cmd, actions=actions)
 
 
+def asked_siren(log: Any, turn: "_Turn", cmd: Command) -> Command:
+    """Названный звук и сцена мигалки, которых в команде нет, — вызовами кода (#5020).
+
+    «Сирену и мигалку» модель закрывала одной анимацией: звук ``robot_alert`` не звучал, шаг
+    n903 краснел ``PATTERN_MISS`` на ``play_sound``. Слова модели не подменяются.
+    """
+    fresh, done = siren_ask.with_asked(turn.text, cmd, turn.acted)
+    if done:
+        log.info(f"{LOG_MARK} сирена/мигалка: код добавил {done} turn={turn.turn_id}")
+    return fresh
+
+
 def owed_now(snapshot: SessionSnapshot, turn: "_Turn", cmd: Command, fresh: Command, names: Collection[str],
              last: bool) -> str:
     """Причина вернуть ответ модели (:data:`_OWED`) или «»: повтор прочитанного (:func:`reread_reason`), иначе - ответ
@@ -1319,7 +1347,8 @@ def _push_for_words(engine: "TurnEngine", turn: _Turn) -> Optional[str]:
 
 #: Нарушения последней итерации «ответа нет, слов нет»: за словами ход повторяет вызов (:func:`_push_for_words`) -
 #: от валидатора моста (форма итерации) и от хода (голый ответ, когда мост команду не судит).
-_WORDS_MISSED = (kn.VIOLATION_SPEECH_REQUIRED, kn.VIOLATION_SILENT_ANSWER, kn.VIOLATION_SOUND_ANSWER)
+_WORDS_MISSED = (kn.VIOLATION_SPEECH_REQUIRED, kn.VIOLATION_SPEECH_ASKED, kn.VIOLATION_SILENT_ANSWER,
+                 kn.VIOLATION_SOUND_ANSWER)
 
 
 def _missed_words(engine: "TurnEngine", turn: _Turn, reason: str) -> Optional[str]:
@@ -1640,6 +1669,7 @@ async def _close_invalid(engine: "TurnEngine", turn: _Turn, invalid: Invalid, sn
         return None
     invalid = replace(invalid, salvage=theme_switch.salvage_with_switch(
         engine.session.snapshot.top("DJ") is not None, turn.text, invalid.salvage, turn.acted))
+    invalid = replace(invalid, salvage=siren_ask.salvage_with_asked(turn.text, invalid.salvage, turn.acted))
     log.warning(f"{LOG_MARK} невалидная команда {why} → допустимых действий {len(invalid.salvage)}, итог скажет код")
     if action_chain.runs_as_chain(invalid.salvage):  # повтор не помог - вереница с планом кода (ADR-0165 §3)
         start_chain(engine, turn, Command(expression=expression or Expression()), invalid.salvage, snap)

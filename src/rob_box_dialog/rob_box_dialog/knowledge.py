@@ -726,6 +726,8 @@ TOOL_CLASSES: Mapping[str, str] = MappingProxyType({
 })
 #: Тул библиотеки сгенерированной музыки: семь действий одним тулом каталога (``action``), а класс у них разный.
 LIBRARY_TOOL = "music_library"
+#: Тул Химеры (#5074): «спой … химерой» — форма пути пения требует его, а не живое ``perform``.
+CHIMERA_TOOL = "chimera_perform"
 #: Тул заказа генерации (Suno): его ``theme`` - тема «только что сочинённой» для ``track_ref`` у ``music_library``.
 GENERATE_TOOL = "generate_music"
 #: Тул правки ИГРАЮЩЕЙ музыки: темп, тембр, бас своего синт-трека на такте или честный отказ кодом.
@@ -1030,7 +1032,8 @@ WAKE_SLIP_GATES: Tuple[SlipGate, ...] = (
 #: а ``test_knowledge.py`` сверяет её с каталогом: чужого триггера нет, у каждого триггера каталога есть строка здесь или
 #: он назван в ``SOUND_UNNAMED``. «Гудок» и «сигнал» - ближайший звук каталога ``robot_alert`` (предупреждение).
 SOUND_ALIASES_RU: Tuple[Tuple[Tuple[str, ...], Tuple[str, ...]], ...] = (
-    (("robot_alert",), ("сирен", "мигалк", "тревог", "сигнализац", "гудок", "гудк", "сигнал")),
+    # «мигалка» — сцена лица, не звук (#5020): из триггеров robot_alert убрана, сирена звук заказывает.
+    (("robot_alert",), ("сирен", "тревог", "сигнализац", "гудок", "гудк", "сигнал")),
     (("ui_bell",), ("звонок", "звонк", "колокол")),
     (("ui_chime",), ("динь", "дзынь", "лифт")),
     (("ui_notification",), ("уведомлени", "оповещени")),
@@ -1879,6 +1882,8 @@ SHOW_FIELDS: Tuple[str, str, str] = ("animation", "duration", "face")
 #: (``скорая/скорой/скорую``) или ``амбуланс*``.
 POLICE_LIGHTS_STEMS: Tuple[str, ...] = ("сирен", "мигалк")
 AMBULANCE_EXCLUDE_STEMS: Tuple[str, ...] = ("скорая", "скорой", "скорую", "амбуланс")
+#: Сцена лица мигалки: её код ставит, когда человек просит мигалку, а модель сцену не назвала (#5020).
+POLICE_LIGHTS_ANIMATION = "police_lights"
 #: Причина нарушения «ответ без слов»: ход не исполняет голый неслышимый ответ, а возвращает модели нарушение (форма
 #: ``command.explain``) следующей итерацией; повтор кончился - анимация и лицо исполняются и говорит код
 #: (``INVALID_COMMAND_PHRASES``), не молчание. Правило словами для модели - :data:`SILENT_ANSWER_HINT`.
@@ -3075,7 +3080,7 @@ VIOLATION_SPEECH_WITH_ACTIONS = "speech_with_actions"
 #: словами модели, поэтому ``speech`` рядом с ними законен и звучит. Успех таких действий молчит (фразу «Запомнил: …»
 #: не добавляем), провал говорит код. Остальные действия (звук, музыка, движение, громкость, голос) - прежнее правило
 #: ``VIOLATION_SPEECH_WITH_ACTIONS``. Единственная таблица: валидатор, фраза хода и промпт читают её.
-QUIET_WITH_SPEECH_TOOLS: Tuple[str, ...] = ("memory_save", "register_speaker", "play_animation")
+QUIET_WITH_SPEECH_TOOLS: Tuple[str, ...] = ("memory_save", "register_speaker", "play_animation", "play_sound")
 
 
 @dataclass(frozen=True)
@@ -3917,7 +3922,12 @@ SING_FORMS: Mapping[str, SingForm] = MappingProxyType({
     # правка играющего: заказ нового закрыт, правка обязательна; выступление форма не трогает (любой вид)
     "edit": SingForm(closed_tools=("generate_music", "request_music", "dj_set"), needs_tool=EDIT_TOOL,
                      kinds=PERFORM_KINDS),
+    # «спой химерой»: не живое пение — тул Химеры обязателен, perform не обязателен (#5074, ADR-0148)
+    "chimera": SingForm(needs_tool=CHIMERA_TOOL, needs_perform=False),
 })
+#: Стебель, которым реплика называет Химеру. Тот же, что в :data:`SOUND_STEMS` (группа ``sound``): нового списка нет,
+#: ``has_word`` ловит «химерой» / «химеру» / «химера».
+CHIMERA_STEM = "химер"
 #: Голова id пути хода «правка играющего» (``edit:<вид>+…``): музыка играет, а реплика её правит («сделай бит
 #: потяжелее», «ускорь», «добавь баса»; кейс Шифу 27.10 посреди рэпа, марафон n504–n506). Решает хост до модели тем же
 #: вызовом, что путь пения (``rob_box_music.track_edit.edit_route``: слова правки ``TRACK_EDITS`` и снимок плеера), и
@@ -3928,22 +3938,95 @@ EDIT_ROUTE = "edit"
 VIOLATION_SING_ROUTE = "sing_route"
 
 
-def sing_family(route: str, over_music: bool = False) -> str:
+def chimera_named(text: str) -> bool:
+    """Реплика называет Химеру стеблем :data:`CHIMERA_STEM` (тот же, что в :data:`SOUND_STEMS`).
+
+    «Спой химерой» — не живое пение (#5074): стебель уже открывает группу ``sound``, здесь то же слово решает
+    форму пути. Нового списка и регулярки нет.
+    """
+    from rob_box_dialog.words import has_word  # noqa: PLC0415 — words импортирует knowledge: цикл на уровне модуля
+
+    return has_word(text or "", (CHIMERA_STEM,))
+
+
+def sing_family(route: str, over_music: bool = False, text: str = "") -> str:
     """Путь пения по id кандидата: ``live:*`` — ``live`` (музыка уже играет, ``over_music`` — ``live_over``); правка
     играющего ``edit:*`` (:data:`EDIT_ROUTE`) — ``edit``; иной непустой (``generate:*``, ``cache:*``) — ``generate``;
-    «» — не пение."""
+    «» — не пение. Живое пение, в реплике которого названа Химера (:func:`chimera_named`), — семья ``chimera``:
+    форма требует ``chimera_perform``, а не ``perform`` (#5074)."""
     head = (route or "").split(":", 1)[0]
     if head == EDIT_ROUTE:
         return "edit"
     if head == "live":
+        if chimera_named(text):
+            return "chimera"
         return "live_over" if over_music else "live"
     return "generate" if head else ""
 
 
-def sing_kinds(route: str) -> Tuple[str, ...]:
+#: Просьба найти в библиотеке (марафон #3 акт 7 n705, #5093): глагол поиска словом целиком и основа «библиотек».
+#: «запомни, что…» глагола поиска не содержит — ``memory_save`` остаётся открыт. Распознаёт
+#: ``tools_view.library_asked``.
+LIBRARY_REQUEST_VERBS: Tuple[str, ...] = (
+    "найди",
+    "найдите",
+    "найти",
+    "поищи",
+    "поищите",
+    "поискать",
+    "отыщи",
+    "отыщите",
+)
+#: Тулы, которых в таком ходе нет: запись памяти не исполняет поиск по библиотеке (ADR-0148 п.2).
+LIBRARY_REQUEST_CLOSED_TOOLS: Tuple[str, ...] = ("memory_save",)
+#: Нарушение формы библиотечной просьбы: модель позвала закрытый тул. Мост по ``tool_not_available`` срез расширяет —
+#: это нарушение своё, срез не растёт.
+VIOLATION_LIBRARY_REQUEST = "library_request"
+LIBRARY_REQUEST_HINT = (
+    "эта реплика — поиск в библиотеке: позови music_library, память (memory_save) в этом ходе "
+    "закрыта и фактом прошлого хода поиск не исполняется"
+)
+
+
+#: Просьба говорить (марафон #3 акт 9 n906, #5094): глагол говорения словом целиком. «расскажи анекдот и покажи
+#: анимацию» — речь обязана прозвучать; голая мигалка (``play_animation``) и одно лицо её не исполняют. «покажи
+#: анимацию» глагола говорения не содержит — ответ без слов остаётся законным. «не рассказывай» — отказ, не просьба.
+#: Распознаёт ``tools_view.speech_asked``.
+SPEECH_ASK_VERBS: Tuple[str, ...] = (
+    "расскажи", "расскажите", "рассказать", "расскажи-ка",
+    "скажи", "скажите", "сказать", "скажи-ка",
+    "объясни", "объясните", "объяснить",
+    "ответь", "ответьте", "ответить", "отвечай",
+    "прочитай", "прочитайте", "прочитать", "прочти", "прочтите",
+    "перескажи", "перескажите", "пересказать",
+    "поведай", "поведайте",
+    "поделись", "поделитесь",
+    "озвучь", "озвучьте", "озвучи", "озвучите",
+    "произнеси", "произнесите", "произнести",
+    "зачитай", "зачитайте",
+    "проговори", "проговорите",
+    "назови", "назовите",
+)
+#: Отказ перед глаголом говорения: «не рассказывай» просьбой говорить не является.
+SPEECH_ASK_NEGATION: Tuple[str, ...] = ("не", "без")
+#: Нарушение формы просьбы говорить: ход закрыт только тем, чего не слышно (``SILENT_DONE_TOOLS``,
+#: ``INAUDIBLE_TOOLS``, одно лицо). Мост по ``tool_not_available`` срез расширяет — это нарушение своё.
+VIOLATION_SPEECH_ASKED = "speech_asked"
+#: Ответ без слов, повтор за которым даёт ход, а не мост (:func:`command.words_only`): последняя итерация после
+#: запроса и просьба говорить. Мост по ним срез не расширяет и свой повтор не тратит — вызовы считает ход.
+WORDS_ONLY_VIOLATIONS: Tuple[str, ...] = (VIOLATION_SPEECH_REQUIRED, VIOLATION_SPEECH_ASKED)
+SPEECH_ASKED_HINT = (
+    "просили рассказать — нужен текст или звук, одна мигалка не ответ: ответь словами в speech "
+    "(анимацию положи в actions рядом) или скажи выступлением в perform; play_animation и expression "
+    "без речи эту просьбу не закрывают"
+)
+
+
+def sing_kinds(route: str, text: str = "") -> Tuple[str, ...]:
     """Допустимые ``perform.kind`` пути пения: ``live:<вид>`` — этот вид (вид вне ``SING_PERFORM_KINDS`` — оба),
-    иначе — из :data:`SING_FORMS`; не пение — пусто (как в схеме)."""
-    form = SING_FORMS.get(sing_family(route))
+    иначе — из :data:`SING_FORMS`; не пение — пусто (как в схеме). ``text`` — реплика хода: «химер» в ней
+    переводит живое пение в семью ``chimera`` (вид из id пути, perform не обязателен)."""
+    form = SING_FORMS.get(sing_family(route, text=text))
     if form is None:
         return ()
     kind = route.split(":")[1] if route.count(":") >= 1 else ""
@@ -3952,19 +4035,20 @@ def sing_kinds(route: str) -> Tuple[str, ...]:
     return (kind,) if kind in SING_PERFORM_KINDS else SING_PERFORM_KINDS
 
 
-def with_sing(schema: Mapping[str, Any], route: str, over_music: bool = False) -> Dict[str, Any]:
+def with_sing(schema: Mapping[str, Any], route: str, over_music: bool = False, text: str = "") -> Dict[str, Any]:
     """Схема команды в форме пути пения: ``perform.kind`` и ``perform.backing`` — перечни пути, ``perform`` обязателен
     на живом пении (ADR-0148 п.2: выбор сужает структура, а не правило в промпте). Подложку вне перечня пути на живом
     пении валидатор ставит первой из перечня — синт (или поверх играющего, ``over_music``) решает код
     (``command._fit_sing_backing``). Путь, где можно только петь (песня, рэп), — без полей ролей ``ROLE_FIELDS``: всё
     звучит голосом робота. Не пение — без изменений."""
-    form = SING_FORMS.get(sing_family(route, over_music))
+    form = SING_FORMS.get(sing_family(route, over_music, text))
     out = copy.deepcopy(dict(schema))
     perform = out.get("properties", {}).get("perform")
     if form is None or perform is None:
         return out
-    perform["properties"]["kind"] = _enum(sing_kinds(route))
-    if not set(sing_kinds(route)) & set(PERFORM_ROLE_KINDS):  # песня и рэп — голосом робота, ролей нет
+    kinds = sing_kinds(route, text)
+    perform["properties"]["kind"] = _enum(kinds)
+    if not set(kinds) & set(PERFORM_ROLE_KINDS):  # песня и рэп — голосом робота, ролей нет
         for name in ROLE_FIELDS:
             perform["properties"].pop(name, None)
     if form.backings:
