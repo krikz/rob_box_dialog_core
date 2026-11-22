@@ -93,6 +93,24 @@ def test_honesty_audit_db_flags_claim_without_action(db, capsys):
     assert [(f.turn, f.rule, f.verdict) for f in findings] == [(3, "memory_saved", "claim_without_tool")]
 
 
+def test_speech_requested_without_start_is_not_kept(tmp_path):
+    """Ход обещал речь в динамики, SpeechEvent started нет: отчёт не успех."""
+    ev = open_events(str(tmp_path / "e2e.db"), "s1")
+    ev.write("user", turn_id="t9", epoch=0, agent="personality", text="привет")
+    ev.write(
+        "speech_requested",
+        turn_id="t9",
+        epoch=0,
+        agent="personality",
+        text="Привет!",
+        data={"speech_id": "sp1", "awaits_start": True},
+    )
+    ev.write("turn", turn_id="t9", epoch=0, agent="personality", data={"status": "finished"})
+    ev.close()
+    turn = e2e_db.load(tmp_path / "e2e.db")[0]
+    assert turn.kept() is False
+
+
 def test_log_mode_still_requires_log():
     with pytest.raises(SystemExit):
         turn_metrics.main([])
