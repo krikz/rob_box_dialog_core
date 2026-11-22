@@ -83,6 +83,7 @@ def test_turn_metrics_db_report(db, capsys):
     out = capsys.readouterr().out
     assert "Ходов в e2e-БД: 3; с агрегатом: 3; без LLM (Tier-1 и др.): 1." in out
     assert "| A1 `llm_calls` на ход (p50 = 1, p100 ≤ 3) | 3 | 1 | 2 | 2 |" in out
+    assert "неуспех по факту" in out and "0." in out.split("неуспех по факту", 1)[1][:80]
     assert "- A13 служебный текст в начатой речи: 1" in out
     assert "- A14 `minimax`: ответов 2, невалидных 1 (50 %; порог ≤ 10 %)." in out
 
