@@ -1,8 +1,8 @@
 """Описание ``chimera_perform``, которое видит модель, согласовано с enum схемы (#5152, ADR-0148).
 
-Каталог объявляет инструмент: ``action`` — ``chimera_offer.ACTIONS``, не профиль поставки.
-Сужение до фактического профиля делает рантайм (``offered_schema``), не генератор. Текст и поля
-строит тот же модуль из списка, который стоит в enum. Своей копии строки в тесте нет.
+Каталог клипов показывает только ``call`` и не обещает пение. Форма синтеза показывает ``sing`` и
+пение не отрицает. Поля чужих действий в схему не входят. Проверяется поведение модуля, не дословный
+промпт: текст и поля строит ``chimera_offer`` из того же списка, что стоит в enum.
 """
 
 from rob_box_core.tool_catalog import get_tool
@@ -23,23 +23,16 @@ def _shown(form):
         return model_schema(_entry())["function"]
 
 
-def test_shown_schema_agrees_with_the_catalog_enum_and_hides_foreign_fields():
-    """Вне хода показ равен enum каталога. Каталог объявляет все четыре действия.
-
-    Существо и вызов в каталоге без enum: их сужает загрузчик поставки, не генератор.
-    Текст — ``perform_description`` того же списка. Литерал каталога совпадает с показом.
-    """
+def test_clips_schema_talks_only_about_call_and_hides_sing_fields():
     shown = _shown(Form())
     actions = shown["parameters"]["properties"]["action"]["enum"]
-    assert actions == list(ACTIONS)
+    assert actions == ["call"]
     assert shown["description"] == perform_description(actions)
-    assert shown["description"] == _entry().description
-    assert "не обещает" not in shown["description"]
+    assert "sing" not in shown["description"]
+    assert "пение" in shown["description"]  # отказ, не обещание: слова «пение» в отрицании есть
     names = set(shown["parameters"]["properties"])
     assert names == {"action", *fields_for(actions)}
-    assert {"title", "syllables", "timbre", "creature", "call", "phrase_id"} <= names
-    assert "enum" not in shown["parameters"]["properties"]["creature"]
-    assert "enum" not in shown["parameters"]["properties"]["call"]
+    assert "syllables" not in names and "title" not in names and "timbre" not in names
 
 
 def test_synth_form_offers_sing_and_does_not_deny_it():
@@ -58,14 +51,8 @@ def test_synth_form_offers_sing_and_does_not_deny_it():
 
 
 def test_validator_keeps_the_catalog_fields_outside_the_sing_form():
-    """Вне хода валидатор не режет поля и не подменяет enum: судит каталог как есть.
-
-    Каталог объявляет все четыре действия, поэтому ``sing`` здесь из enum. Отказ
-    «не обещает» строит тот же модуль, когда список короче объявления.
-    """
+    """Вне хода валидатор не режет поля: ``sing`` — «не из enum», не «лишнее поле»."""
     shown = tool_schema(kn.CHIMERA_TOOL, Form())
     assert "title" in shown["properties"]
-    assert shown["properties"]["action"]["enum"] == list(ACTIONS)
-    denied = perform_description(["call"])
-    assert "не обещает" in denied and "пение" in denied
-    assert denied != perform_description(list(ACTIONS))
+    assert shown["properties"]["action"]["enum"] == ["call"]
+    assert perform_description(["call"]) != perform_description(list(ACTIONS))
