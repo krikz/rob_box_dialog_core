@@ -4,6 +4,11 @@
 несёт тул робота). Форма синтеза сужает показ до ``sing`` и пение не отрицает. Поля чужих действий
 в схему не входят. Проверяется поведение модуля, не дословный промпт: текст и поля строит
 ``chimera_offer`` из того же списка, что стоит в enum.
+
+Литерал ``description`` в каталоге ядро не переписывает. Его сверяет генератор робота
+(``tools/gen_tool_catalog.py --check``, оверлей CI) с тулом ``ChimeraPerformTool``. Пока этот тул
+на ``develop`` отдаёт свою строку, подмена литерала роняет сверку. Показ модели от литерала не
+зависит: хосты зовут ``chimera_offer_description``.
 """
 
 from rob_box_core.tool_catalog import get_tool
@@ -28,13 +33,17 @@ def test_shown_schema_agrees_with_the_catalog_enum_and_hides_foreign_fields():
     """Вне хода показ равен enum каталога. Поставка ядра объявляет все четыре действия (#5152):
 
     клиповой поставки (только ``call``) в ядре нет — её несёт тул робота, которого здесь нет.
-    Текст и поля берутся из того же списка, что стоит в enum, а не из второй копии строки.
+    Текст и поля берутся из того же списка, что стоит в enum. Литерал каталога — запись поставки,
+    не то, что видит модель.
     """
     shown = _shown(Form())
     actions = shown["parameters"]["properties"]["action"]["enum"]
     assert actions == list(ACTIONS)
     assert shown["description"] == perform_description(actions)
     assert "не обещает" not in shown["description"]
+    # Литерал каталога — запись тула робота, не показ модели. Пока тул на develop отдаёт свою
+    # строку, они расходятся; сверку литерала делает gen_tool_catalog.py --check в CI.
+    assert _entry().description != perform_description(actions)
     names = set(shown["parameters"]["properties"])
     assert names == {"action", *fields_for(actions)}
     assert {"title", "syllables", "timbre", "creature", "call", "phrase_id"} <= names
