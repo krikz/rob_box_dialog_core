@@ -95,6 +95,7 @@ from rob_box_dialog import knowledge as kn
 from rob_box_dialog import memory
 from rob_box_dialog import pickup_parties
 from rob_box_dialog import siren_ask
+from rob_box_dialog import speech_show
 from rob_box_dialog.voice_warmth import no_warm_voices
 from rob_box_dialog import state_claim
 from rob_box_dialog import theme_switch
@@ -120,7 +121,7 @@ from rob_box_dialog.respond import (ActionResult, asks, audible, classed, failed
 from rob_box_dialog.session import Session, SessionSnapshot, SpeakerRef
 from rob_box_dialog.speaker_adapter import asks_recognized, known_voice_registers, recognition_reply, speaker_block
 from rob_box_dialog.window_reset import WindowGuard, reset_if_idle, reset_window
-from rob_box_dialog.words import (asks_own_memory_condition, asks_question, asks_to_listen, has_form, has_word,
+from rob_box_dialog.words import (asks_own_memory_condition, asks_question, asks_to_listen, has_form,
                                   music_stop_claimed, same_stop_rest)
 from rob_box_dialog.tools_view import (available_tools, catalogs_asked, library_asked, music_asked, needs_words,
                                        robot_asked, show_asked, speech_asked, voice_asked, voice_named)
@@ -443,6 +444,7 @@ def command_form(turn: "_Turn", snapshot: SessionSnapshot, voices: Voices = (), 
     по каждому, а не по склейке); ``sing`` — путь пения, решённый кодом до модели (:func:`sing_route`);
     живое пение при играющей музыке (``SessionSnapshot.music_playing``) — поверх неё (``Form.sing_over``, n810);
     «химер» в реплике живого пения — семья ``chimera`` (``knowledge.chimera_named``, #5074);
+    «скажи» / «сыграй химерой» без маршрута пения — та же семья, действие из глагола (#5025);
     подложка сказки, анекдота и стиха — только когда человек в этой реплике назвал музыку
     (``tools_view.music_asked``); песня и рэп ставят её по смыслу (``knowledge.PERFORM_BACKING_BY_KIND``).
     ``library`` — реплика просит найти в библиотеке (``tools_view.library_asked``): ``memory_save`` в этом ходе
@@ -1182,6 +1184,7 @@ def considered(engine: "TurnEngine", turn: "_Turn", cmd: Command, last: bool) ->
     fresh = their_photos(engine, log, turn, fresh)  # «пришли их» без id (#4505)
     fresh = corrected_ambulance(log, turn, fresh)  # сирена/мигалка: ambulance → police_lights (#4694)
     fresh = asked_siren(log, turn, fresh)  # названный звук и мигалка, которых модель не заказала (#5020)
+    fresh = shown_with_speech(log, turn, fresh)  # «расскажи и покажи»: сцена, которую модель забыла (#5094)
     fresh = dictated_fact(log, turn, fresh)  # диктовка факта без тула модели (#5128)
     names = foreign_keys(engine.log.window(exclude=turn.turn_id), turn, fresh, snapshot)
     fresh = unnamed_without_retry(log, turn, fresh, names, last)
@@ -1256,9 +1259,9 @@ def switched_theme(log: Any, snapshot: SessionSnapshot, turn: "_Turn", cmd: Comm
 
 
 def _remap_ambulance_for_siren(text: str, actions: Sequence[ToolCall]) -> Sequence[ToolCall]:
-    """``animation=ambulance`` → ``police_lights`` только когда в тексте есть ``сирен*``/``мигалк*``
-    и нет явной скорой помощи ``скорая/скорой/скорую/амбуланс*`` (#4694). Решает код, не модель."""
-    if not has_word(text, kn.POLICE_LIGHTS_STEMS) or has_word(text, kn.AMBULANCE_EXCLUDE_STEMS):
+    """``animation=ambulance`` → ``police_lights``, когда реплика про сирену или мигалку и не про скорую
+    (#4694). Оговорка STT «сериал» читается тем же словарём, что и звук (#5020). Решает код, не модель."""
+    if not siren_ask.asks_police_lights(text):
         return actions
     fixed: List[ToolCall] = []
     changed = False
@@ -1288,6 +1291,18 @@ def asked_siren(log: Any, turn: "_Turn", cmd: Command) -> Command:
     fresh, done = siren_ask.with_asked(turn.text, cmd, turn.acted)
     if done:
         log.info(f"{LOG_MARK} сирена/мигалка: код добавил {done} turn={turn.turn_id}")
+    return fresh
+
+
+def shown_with_speech(log: Any, turn: "_Turn", cmd: Command) -> Command:
+    """Сцена показа, которую составная просьба назвала, а команда не заказала (#5094).
+
+    «Расскажи анекдот и покажи анимацию» модель закрывала речью без ``play_animation``: сцена не
+    зажигалась. Слова модели не подменяются, анекдот код не сочиняет.
+    """
+    fresh, done = speech_show.with_show(turn.text, cmd, turn.acted)
+    if done:
+        log.info(f"{LOG_MARK} составная просьба: код добавил {done} turn={turn.turn_id}")
     return fresh
 
 
@@ -1724,6 +1739,7 @@ async def _close_invalid(engine: "TurnEngine", turn: _Turn, invalid: Invalid, sn
     invalid = replace(invalid, salvage=theme_switch.salvage_with_switch(
         engine.session.snapshot.top("DJ") is not None, turn.text, invalid.salvage, turn.acted))
     invalid = replace(invalid, salvage=siren_ask.salvage_with_asked(turn.text, invalid.salvage, turn.acted))
+    invalid = replace(invalid, salvage=speech_show.salvage_with_show(turn.text, invalid.salvage, turn.acted))
     invalid = replace(invalid, salvage=fact_dictation.salvage_with_dictated(turn.text, invalid.salvage, turn.acted))
     log.warning(f"{LOG_MARK} невалидная команда {why} → допустимых действий {len(invalid.salvage)}, итог скажет код")
     if action_chain.runs_as_chain(invalid.salvage):  # повтор не помог - вереница с планом кода (ADR-0165 §3)

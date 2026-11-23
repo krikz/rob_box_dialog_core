@@ -732,7 +732,8 @@ TOOL_CLASSES: Mapping[str, str] = MappingProxyType({
 })
 #: Тул библиотеки сгенерированной музыки: семь действий одним тулом каталога (``action``), а класс у них разный.
 LIBRARY_TOOL = "music_library"
-#: Тул Химеры (#5074): «спой … химерой» — форма пути пения требует его, а не живое ``perform``.
+#: Тул Химеры (#5025, #5074): «скажи / спой / сыграй … химерой» — форма пути пения требует его, а не живое
+#: ``perform`` (срез музыки его вытесняет, форму хода — нет).
 CHIMERA_TOOL = "chimera_perform"
 #: Тул заказа генерации (Suno): его ``theme`` - тема «только что сочинённой» для ``track_ref`` у ``music_library``.
 GENERATE_TOOL = "generate_music"
@@ -1045,6 +1046,22 @@ WAKE_SLIP_GATES: Tuple[SlipGate, ...] = (
 #: пакет диалога каталог с диска не читает (образы бота и матрицы собирают его без ``sound_pack``), поэтому таблица здесь,
 #: а ``test_knowledge.py`` сверяет её с каталогом: чужого триггера нет, у каждого триггера каталога есть строка здесь или
 #: он назван в ``SOUND_UNNAMED``. «Гудок» и «сигнал» - ближайший звук каталога ``robot_alert`` (предупреждение).
+#: «Мигалка» сюда не входит (#5020): это сцена лица ``police_lights``, не звук. Сирену называет только ``сирен*``.
+#: Оговорки STT целым словом → основа из таблицы ниже (#5020, n903 21.11 и 22.11): Yandex слышит «сирену» как
+#: «сериал» («робот а теперь сериал и мигалку»). Основа ``сирен*`` такое слово не ловит — оно с неё не начинается,
+#: а ``heard.repair`` чинит только начало команды. Форма целиком, нижний регистр, ё → е; не из таблицы — не трогается.
+#: Читает ``siren_ask.misheard_stems`` только рядом с «мигалку»: голое «сериал» звук не заказывает.
+SOUND_MISHEARS_RU: Tuple[Tuple[str, str], ...] = (
+    ("сериал", "сирен"),
+    ("сериалы", "сирен"),
+    ("сериала", "сирен"),
+    ("сериале", "сирен"),
+    ("сериалов", "сирен"),
+    ("сериалом", "сирен"),
+    ("сериалам", "сирен"),
+    ("сериалах", "сирен"),
+    ("сериалами", "сирен"),
+)
 SOUND_ALIASES_RU: Tuple[Tuple[Tuple[str, ...], Tuple[str, ...]], ...] = (
     # «мигалка» — сцена лица, не звук (#5020): из триггеров robot_alert убрана, сирена звук заказывает.
     (("robot_alert",), ("сирен", "тревог", "сигнализац", "гудок", "гудк", "сигнал")),
@@ -2476,6 +2493,10 @@ ANIMATION_ALIASES: Mapping[str, str] = MappingProxyType({
     "счастье": "happy",
     "веселье": "happy",
     "веселое": "happy",
+    # n906: «покажи весёлую анимацию» — форма, которой в словаре не было; та же сцена, что у «веселое»
+    "веселую": "happy",
+    "веселая": "happy",
+    "веселый": "happy",
     "улыбку": "happy",
     "грустный": "sad",
     "грустное": "sad",
@@ -3959,6 +3980,7 @@ SING_FORMS: Mapping[str, SingForm] = MappingProxyType({
     # «спой химерой»: не живое пение — тул Химеры обязателен, действие sing (#5074, #5152, ADR-0148).
     # Каталог поставки объявляет действия как есть. Это не вторая таблица клипов: форма сужает action до sing,
     # поля чужих действий из схемы уходят — готовый клип этим ходом не выбирается.
+    # «скажи» / «сыграй» берут действие из :func:`chimera_form_actions`, не из этой строки.
     "chimera": SingForm(needs_tool=CHIMERA_TOOL, needs_perform=False, tool_actions=("sing",)),
 })
 #: Стебель, которым реплика называет Химеру. Тот же, что в :data:`SOUND_STEMS` (группа ``sound``): нового списка нет,
@@ -3989,7 +4011,9 @@ def sing_family(route: str, over_music: bool = False, text: str = "") -> str:
     """Путь пения по id кандидата: ``live:*`` — ``live`` (музыка уже играет, ``over_music`` — ``live_over``); правка
     играющего ``edit:*`` (:data:`EDIT_ROUTE`) — ``edit``; иной непустой (``generate:*``, ``cache:*``) — ``generate``;
     «» — не пение. Живое пение, в реплике которого названа Химера (:func:`chimera_named`), — семья ``chimera``:
-    форма требует ``chimera_perform``, а не ``perform`` (#5074)."""
+    форма требует ``chimera_perform``, а не ``perform`` (#5074). Пустой маршрут с тем же стеблем и глаголом
+    «скажи» / «сыграй» (:func:`rob_box_dialog.chimera_offer.verb_action`) — та же семья (#5025): «сыграй» музыкой
+    пением не считается, а схема тула без семьи остаётся ``call``. «Покажи химеру» глагола нет — семья пуста."""
     head = (route or "").split(":", 1)[0]
     if head == EDIT_ROUTE:
         return "edit"
@@ -3997,7 +4021,11 @@ def sing_family(route: str, over_music: bool = False, text: str = "") -> str:
         if chimera_named(text):
             return "chimera"
         return "live_over" if over_music else "live"
-    return "generate" if head else ""
+    if head:
+        return "generate"
+    from rob_box_dialog.chimera_offer import verb_action  # noqa: PLC0415 — offer не тянет knowledge
+
+    return "chimera" if chimera_named(text) and verb_action(text) else ""
 
 
 #: Просьба найти в библиотеке (марафон #3 акт 7 n705, #5093): глагол поиска словом целиком и основа «библиотек».
@@ -4092,6 +4120,19 @@ def sing_kinds(route: str, text: str = "") -> Tuple[str, ...]:
     if form.kinds:
         return form.kinds
     return (kind,) if kind in SING_PERFORM_KINDS else SING_PERFORM_KINDS
+
+
+def chimera_form_actions(text: str, route: str = "") -> Tuple[str, ...]:
+    """Действие ``chimera_perform``, которое форма хода оставляет в схеме (#5025, ADR-0148).
+
+    Живой маршрут — ``sing``, как в :data:`SING_FORMS`: «спой химерой» не становится речью от слова «скажи»
+    рядом. Пустой маршрут — ``speak`` или ``play`` из :func:`rob_box_dialog.chimera_offer.verb_action`.
+    Глагола нет — действие пения: семью без глагола открывает только живой маршрут.
+    """
+    from rob_box_dialog.chimera_offer import verb_action  # noqa: PLC0415 — offer не тянет knowledge
+
+    asked = "" if (route or "").split(":", 1)[0] == "live" else verb_action(text)
+    return (asked or "sing",)
 
 
 def chimera_tool_schema(schema: Mapping[str, Any], form: SingForm) -> Dict[str, Any]:
