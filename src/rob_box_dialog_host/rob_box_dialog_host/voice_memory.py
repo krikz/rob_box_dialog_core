@@ -67,6 +67,7 @@ except ImportError:
 # Ollama embeddings (lazy, gracefully degrades)
 # ---------------------------------------------------------------------------
 
+
 def query_words(query: str) -> List[str]:
     """Слова запроса: casefold + только буквы/цифры (#3890).
 
@@ -89,10 +90,15 @@ def _yo_fold(word: str) -> str:
 #: Расширять только вместе с тестом на ложного соседа.
 _EAT_FORMS = frozenset(
     _yo_fold(w)
-    for w in ("еда еды еде еду едой едою едам едами едах есть ест ем ешь едят едите ешьте ел ела ело ели").split()
+    for w in (
+        "еда еды еде еду едой едою едам едами едах есть ест ем ешь едят едите ешьте ел ела ело ели"
+    ).split()
 )
 _DRINK_FORMS = frozenset(
-    _yo_fold(w) for w in ("пить пью пьешь пьёт пьет пьем пьём пьете пьёте пьют пей пейте пил пила пило пили").split()
+    _yo_fold(w)
+    for w in (
+        "пить пью пьешь пьёт пьет пьем пьём пьете пьёте пьют пей пейте пил пила пило пили"
+    ).split()
 )
 _INFLECTION_FAMILIES = (_EAT_FORMS, _DRINK_FORMS)
 
@@ -108,15 +114,78 @@ def same_inflection(left: str, right: str) -> bool:
     return any(a in family and b in family for family in _INFLECTION_FAMILIES)
 
 
-def _fact_matches(fact: str, tokens: List[str]) -> bool:
-    """Токен запроса — подстрока факта или та же семья форм (#4956).
+# Подстрока короче этого — не обобщение, а шум («а» внутри «жареный»).
+# Целая подстрока токена и семьи форм этот порог не используют.
+# Окончания не снимаются: «пицца» и «пиццу» — разные слова (#3890).
+_MIN_SUBSTRING_CHARS = 3
 
-    Подстрока — прежний контракт («чай» в «зелёный чай»). Семья — точное
-    равенство формы (``same_inflection``): «еда» находит «ест», «если» нет.
+
+def fact_overlap_score(fact: str, tokens: List[str]) -> float:
+    """Сила совпадения запроса с фактом без вектора (#4956). 0 — промах.
+
+    Приоритет, сверху вниз, векторный путь не участвует:
+
+    * 1.0 — токен равен слову факта («чай» = «чай») или та же замкнутая
+      семья форм (``same_inflection``: «еда»↔«ест»). Другая форма того же
+      слова сюда не входит: «пицца» не «пиццу» (#3890);
+    * 0.5 — слово факта содержит токен запроса целиком и длиннее его
+      («лук» внутри «луковицу»). Обратное направление не считается:
+      «луковица» не находит «лук», иначе «кухне» находила бы «не».
+
+    Сравнение — по целым словам после casefold и ``ё``→``е``, не по куску
+    внутри другого корня: «если» не находит «есть», «письмо» не находит
+    «пить». Токен короче ``_MIN_SUBSTRING_CHARS`` в подстроку не идёт.
+    Несколько токенов складываются и режутся потолком 1.0.
     """
-    folded = fact.casefold()
-    fact_words = query_words(fact)
-    return any(token in folded or any(same_inflection(token, word) for word in fact_words) for token in tokens)
+    if not tokens:
+        return 0.0
+    fact_words = [_yo_fold(word) for word in query_words(fact)]
+    total = 0.0
+    for token in tokens:
+        folded = _yo_fold(token)
+        if len(folded) < _MIN_SUBSTRING_CHARS:
+            continue
+        if folded in fact_words or any(
+            same_inflection(folded, word) for word in fact_words
+        ):
+            total += 1.0
+        elif any(folded in word and folded != word for word in fact_words):
+            total += 0.5
+    return min(total, 1.0)
+
+
+def rank_fact_rows(
+    rows: Sequence[sqlite3.Row], tokens: List[str], limit: int
+) -> List[Dict]:
+    """Совпавшие факты по убыванию ``fact_overlap_score``, не больше ``limit``.
+
+    При равном счёте побеждает более свежий: ``rows`` уже идут
+    ``ORDER BY updated_at DESC``, стабильная сортировка это сохраняет.
+    ``source`` остаётся ``"fact"`` — это поиск, не каталог
+    (``fact_browse``). Вектор сюда не подмешивается.
+    """
+    if limit <= 0 or not tokens:
+        return []
+    ranked = [(fact_overlap_score(row["fact"], tokens), row) for row in rows]
+    ranked = [(score, row) for score, row in ranked if score > 0.0]
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    return [_fact_hit(row, score) for score, row in ranked[:limit]]
+
+
+def _fact_hit(row: sqlite3.Row, score: float) -> Dict:
+    """Строка ``voice_facts`` в контракт ``search()``."""
+    return {
+        "id": row["id"],
+        "role": "fact",
+        "content": row["fact"],
+        "session_id": None,
+        "speaker_id": row["speaker_id"],
+        "category": row["category"],
+        "timestamp": row["updated_at"],
+        "score": score,
+        "source": "fact",
+        "kind": "fact",
+    }
 
 
 class OllamaEmbedder:
@@ -272,6 +341,7 @@ def _browse_facts(
         for r in rows
     ]
 
+
 # ---------------------------------------------------------------------------
 # VoiceMemory
 # ---------------------------------------------------------------------------
@@ -352,9 +422,8 @@ class VoiceMemory:
         self._vec_loaded = self._load_vec_extension()
 
         # Embedder (lazy -- will try on first save_turn call)
-        base_url = (
-            ollama_base_url
-            or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        base_url = ollama_base_url or os.getenv(
+            "OLLAMA_BASE_URL", "http://localhost:11434"
         )
         self.embedder = OllamaEmbedder(
             base_url=base_url,
@@ -794,10 +863,7 @@ class VoiceMemory:
         fts_results = self._fts_search(query, limit, speaker_id=speaker_id)
 
         # Supplement with vector search if results are sparse
-        if (
-            len(fts_results) < self.FTS_MIN_RESULTS
-            and self.embedder.is_available()
-        ):
+        if len(fts_results) < self.FTS_MIN_RESULTS and self.embedder.is_available():
             vec_results = self._vector_search(query, limit, speaker_id=speaker_id)
             merged = self._merge_results(fts_results, vec_results, limit)
             return merged
@@ -817,10 +883,12 @@ class VoiceMemory:
         with ``str.casefold`` rather than SQL ``LIKE``/``LOWER`` -- SQLite's
         built-in ``LOWER()`` only folds ASCII, so a raw SQL ``LOWER(fact)
         LIKE ?`` silently never matches Cyrillic (the primary language
-        here). Any token matching is enough, mirroring the OR-of-tokens
-        behaviour of ``_fts_search`` above. Respects the same speaker
-        scoping rule as ``save_fact``/``get_facts``: ``speaker_id`` OR
-        legacy NULL rows.
+        here). Matching and rank live in ``rank_fact_rows`` (#4956): whole
+        token or inflection family first, then a word-level substring
+        fallback. That fallback does not replace the vector path of
+        ``_search_turns`` — facts have no embedding index, and on the robot
+        Ollama is down (``vec=no``). Respects the same speaker scoping rule
+        as ``save_fact``/``get_facts``: ``speaker_id`` OR legacy NULL rows.
         """
         if limit <= 0:
             return []
@@ -849,23 +917,7 @@ class VoiceMemory:
         except sqlite3.OperationalError:
             return []
 
-        matches = [r for r in rows if _fact_matches(r["fact"], tokens)]
-
-        return [
-            {
-                "id": r["id"],
-                "role": "fact",
-                "content": r["fact"],
-                "session_id": None,
-                "speaker_id": r["speaker_id"],
-                "category": r["category"],
-                "timestamp": r["updated_at"],
-                "score": 1.0,
-                "source": "fact",
-                "kind": "fact",
-            }
-            for r in matches[:limit]
-        ]
+        return rank_fact_rows(rows, tokens, limit)
 
     def _speaker_clause(self, speaker_id: Optional[str]) -> Tuple[str, list]:
         """
@@ -1124,11 +1176,15 @@ class VoiceMemory:
     def get_stats(self) -> Dict:
         """Return memory statistics."""
         with self.lock:
-            turn_count = self.conn.execute("SELECT COUNT(*) FROM voice_turns").fetchone()[0]
+            turn_count = self.conn.execute(
+                "SELECT COUNT(*) FROM voice_turns"
+            ).fetchone()[0]
             session_count = self.conn.execute(
                 "SELECT COUNT(DISTINCT session_id) FROM voice_turns"
             ).fetchone()[0]
-            fact_count = self.conn.execute("SELECT COUNT(*) FROM voice_facts").fetchone()[0]
+            fact_count = self.conn.execute(
+                "SELECT COUNT(*) FROM voice_facts"
+            ).fetchone()[0]
 
         vec_count = 0
         if self._has_vec_table():
@@ -1177,18 +1233,32 @@ class VoiceMemory:
             Dict: {indexed, skipped, total, dim}
         """
         if not self.embedder.is_available():
-            return {"indexed": 0, "skipped": 0, "total": 0, "dim": None, "error": "Ollama not available"}
+            return {
+                "indexed": 0,
+                "skipped": 0,
+                "total": 0,
+                "dim": None,
+                "error": "Ollama not available",
+            }
 
         # Probe dimension
         probe = self.embedder.embed("probe")
         if probe is None:
-            return {"indexed": 0, "skipped": 0, "total": 0, "dim": None, "error": "Failed to get embedding"}
+            return {
+                "indexed": 0,
+                "skipped": 0,
+                "total": 0,
+                "dim": None,
+                "error": "Failed to get embedding",
+            }
 
         dim = len(probe)
         self._ensure_vec_table(dim)
 
         with self.lock:
-            turns = self.conn.execute("SELECT id, content FROM voice_turns ORDER BY id").fetchall()
+            turns = self.conn.execute(
+                "SELECT id, content FROM voice_turns ORDER BY id"
+            ).fetchall()
 
         total = len(turns)
         indexed = 0

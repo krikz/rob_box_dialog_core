@@ -185,7 +185,10 @@ def test_unrelated_query_stays_empty_without_browse(tmp_path) -> None:
         memory.save_fact(TEA, category="preference", speaker_id=SASHA)
 
         assert memory.search("кофе", limit=5, speaker_id=SASHA) == []
-        assert memory.search("кофе", limit=5, speaker_id=SASHA, browse_when_empty=False) == []
+        assert (
+            memory.search("кофе", limit=5, speaker_id=SASHA, browse_when_empty=False)
+            == []
+        )
     finally:
         memory.close()
 
@@ -218,7 +221,9 @@ def test_memory_search_tool_requests_catalog(tmp_path) -> None:
     memory = _memory(tmp_path)
     try:
         memory.save_fact(ONION, category="preference", speaker_id=SASHA)
-        logger = types.SimpleNamespace(info=lambda *_a, **_k: None, error=lambda *_a, **_k: None)
+        logger = types.SimpleNamespace(
+            info=lambda *_a, **_k: None, error=lambda *_a, **_k: None
+        )
         node = types.SimpleNamespace(voice_memory=memory, get_logger=lambda: logger)
         result = MemorySearchTool(node=node).execute(query="погода", speaker_id=SASHA)
 
@@ -226,5 +231,120 @@ def test_memory_search_tool_requests_catalog(tmp_path) -> None:
         contents = [r["content"] for r in result.data["results"]]
         assert contents == [ONION]
         assert all(r["source"] == "fact_browse" for r in result.data["results"])
+    finally:
+        memory.close()
+
+
+def test_generalized_word_finds_fact_by_substring(tmp_path) -> None:
+    """Обобщённое слово вне семей форм находит факт подстрокой слова (#4956).
+
+    «лук» не семья «еда»/«пить», но целая подстрока слова «луковицу». Это
+    поиск (``source="fact"``), не каталог: чай в выдачу не попадает.
+    Регистр схлопывается. «ё» схлопывается с «е»: «зеленый» находит
+    «зелёный» — слово факта после схлопывания равно токену.
+    """
+    memory = _memory(tmp_path)
+    try:
+        memory.save_fact(
+            "Любит луковицу в салате", category="preference", speaker_id=SASHA
+        )
+        memory.save_fact(TEA, category="preference", speaker_id=SASHA)
+
+        hits = memory.search("лук", limit=5, speaker_id=SASHA, browse_when_empty=True)
+
+        assert [h["content"] for h in hits] == ["Любит луковицу в салате"]
+        assert hits[0]["source"] == "fact"
+        # «лук» — подстрока слова «луковицу», не равенство слов.
+        assert hits[0]["score"] == 0.5
+
+        folded = memory.search("ЛуК", limit=5, speaker_id=SASHA)
+        assert [h["content"] for h in folded] == ["Любит луковицу в салате"]
+
+        yo_hit = memory.search("зеленый", limit=5, speaker_id=SASHA)
+        assert [h["content"] for h in yo_hit] == [TEA]
+        assert yo_hit[0]["source"] == "fact"
+        assert yo_hit[0]["score"] == 1.0
+    finally:
+        memory.close()
+
+
+def test_whole_token_outranks_nothing_and_reverse_is_empty(tmp_path) -> None:
+    """Целое слово факта сильнее подстроки; длинный запрос короткое не находит.
+
+    «луковицу» находит свой факт (1.0). Обратное «луковица» не находит «лук»:
+    подстрока только «короткое внутри длинного слова факта». Иначе «кухне»
+    находила бы «не». Другая форма («луковица» при факте «луковицу») тоже
+    пуста — это не стеммер, контракт #3890 («пицца» не «пиццу»).
+    """
+    memory = _memory(tmp_path)
+    try:
+        memory.save_fact("Ест лук сырым", speaker_id=SASHA)
+        memory.save_fact("Любит луковицу в салате", speaker_id=SASHA)
+
+        hits = memory.search("луковицу", limit=5, speaker_id=SASHA)
+
+        assert [h["content"] for h in hits] == ["Любит луковицу в салате"]
+        assert [h["score"] for h in hits] == [1.0]
+        assert hits[0]["source"] == "fact"
+        assert memory.search("луковица", limit=5, speaker_id=SASHA) == []
+    finally:
+        memory.close()
+
+
+def test_substring_does_not_false_match(tmp_path) -> None:
+    """Нет ложных совпадений: чужой корень, короткое слово, чужой спикер."""
+    memory = _memory(tmp_path)
+    try:
+        memory.save_fact(ONION, category="preference", speaker_id=SASHA)
+        memory.save_fact("Если дождь — сидит дома", speaker_id=SASHA)
+        memory.save_fact("Ждёт письмо от брата", speaker_id=SASHA)
+        memory.save_fact("Денчик любит луковицу", speaker_id="denchik")
+
+        # «еда» находит лук семьёй форм — это не ложь. Ложь — чужой корень.
+        eat = memory.search("еда", limit=5, speaker_id=SASHA)
+        assert [h["content"] for h in eat] == [ONION]
+        assert memory.search("кофе", limit=5, speaker_id=SASHA) == []
+        assert memory.search("а", limit=5, speaker_id=SASHA) == []
+        # «лук» в факте Саши есть целиком — это попадание, не ложь.
+        assert [
+            h["content"] for h in memory.search("лук", limit=5, speaker_id=SASHA)
+        ] == [ONION]
+        denchik = memory.search("лук", limit=5, speaker_id="denchik")
+        assert [h["content"] for h in denchik] == ["Денчик любит луковицу"]
+        # Другая форма — не стеммер: «пицца» не находит «пиццу» (#3890).
+        memory.save_fact("Борис всегда приносит пиццу", speaker_id=SASHA)
+        assert memory.search("пицца", limit=5, speaker_id=SASHA) == []
+        assert [
+            h["content"] for h in memory.search("пиццу", limit=5, speaker_id=SASHA)
+        ] == [
+            "Борис всегда приносит пиццу",
+        ]
+        assert memory.search("   ", limit=5, speaker_id=SASHA) == []
+    finally:
+        memory.close()
+
+
+def test_empty_db_and_vec_unavailable(tmp_path, monkeypatch) -> None:
+    """Пустая БД → [], даже с каталогом. Эмбеддер недоступен: поиск не падает."""
+    memory = _memory(tmp_path)
+    try:
+        monkeypatch.setattr(memory.embedder, "is_available", lambda: False)
+        assert memory.embedder.is_available() is False
+
+        assert memory.search("еда", limit=5, speaker_id=SASHA) == []
+        assert (
+            memory.search("еда", limit=5, speaker_id=SASHA, browse_when_empty=True)
+            == []
+        )
+        assert (
+            memory.search("лук", limit=5, speaker_id=SASHA, browse_when_empty=True)
+            == []
+        )
+
+        memory.save_fact("Любит луковицу в салате", speaker_id=SASHA)
+        hits = memory.search("лук", limit=5, speaker_id=SASHA)
+        assert [h["content"] for h in hits] == ["Любит луковицу в салате"]
+        assert hits[0]["source"] == "fact"
+        assert memory.embedder.is_available() is False
     finally:
         memory.close()
