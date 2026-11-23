@@ -70,33 +70,29 @@ TOOL_CATALOG_DATA: tuple[dict[str, Any], ...] = (   {   'llm_visible': True,
         'execution_type': 'long',
         'event_source': 'inproc:chimera-host',
         'name': 'chimera_perform',
-        'description': 'Разовое выступление Химерой. action берётся из поставки: '
-                       'сейчас это call — короткий вызов существа, creature и call из '
-                       'того же списка. Речь, пение, игра по названию эта поставка не '
-                       'обещает и в список действий не входит. «Сказал» — только после '
-                       'конца проигрывания, не после старта. Произвольный русский '
-                       'текст не поддержан.',
+        'description': 'Разовое выступление Химерой. action=call — разрешённый вызов '
+                       'существа (короткий клип); speak — подготовленная фраза '
+                       '(phrase_id) проверенным тембром; sing — мелодия по названию со '
+                       'слогами; play — та же мелодия без текста, нейтральным '
+                       'вокализом. Название ищет библиотека партитур. «Спел» — только '
+                       'после конца проигрывания. Произвольный русский текст не '
+                       'поддержан.',
         'parameters': {   'type': 'object',
                           'properties': {   'action': {   'type': 'string',
                                                           'description': 'Что сделать '
                                                                          'Химерой',
-                                                          'enum': ['call']},
+                                                          'enum': [   'call',
+                                                                      'speak',
+                                                                      'sing',
+                                                                      'play']},
                                             'creature': {   'type': 'string',
                                                             'description': 'Существо '
                                                                            'для '
-                                                                           'action=call',
-                                                            'enum': [   'птица',
-                                                                        'тюлень',
-                                                                        'слон',
-                                                                        'аллигатор']},
+                                                                           'action=call'},
                                             'call': {   'type': 'string',
                                                         'description': 'Вызов существа '
                                                                        'для '
-                                                                       'action=call',
-                                                        'enum': [   'щебет',
-                                                                    'писк',
-                                                                    'рык',
-                                                                    'жужжание']},
+                                                                       'action=call'},
                                             'phrase_id': {   'type': 'string',
                                                              'description': 'Id '
                                                                             'подготовленной '
