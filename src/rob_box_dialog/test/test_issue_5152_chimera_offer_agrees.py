@@ -1,14 +1,8 @@
 """Описание ``chimera_perform``, которое видит модель, согласовано с enum схемы (#5152, ADR-0148).
 
-Поставка ядра объявляет все четыре действия (клиповой поставки «только call» в ядре нет — её
-несёт тул робота). Форма синтеза сужает показ до ``sing`` и пение не отрицает. Поля чужих действий
-в схему не входят. Проверяется поведение модуля, не дословный промпт: текст и поля строит
-``chimera_offer`` из того же списка, что стоит в enum.
-
-Литерал ``description`` в каталоге ядро не переписывает. Его сверяет генератор робота
-(``tools/gen_tool_catalog.py --check``, оверлей CI) с тулом ``ChimeraPerformTool``. Пока этот тул
-на ``develop`` отдаёт свою строку, подмена литерала роняет сверку. Показ модели от литерала не
-зависит: хосты зовут ``chimera_offer_description``.
+Каталог объявляет инструмент: ``action`` — ``chimera_offer.ACTIONS``, не профиль поставки.
+Сужение до фактического профиля делает рантайм (``offered_schema``), не генератор. Текст и поля
+строит тот же модуль из списка, который стоит в enum. Своей копии строки в тесте нет.
 """
 
 from rob_box_core.tool_catalog import get_tool
@@ -30,23 +24,22 @@ def _shown(form):
 
 
 def test_shown_schema_agrees_with_the_catalog_enum_and_hides_foreign_fields():
-    """Вне хода показ равен enum каталога. Поставка ядра объявляет все четыре действия (#5152):
+    """Вне хода показ равен enum каталога. Каталог объявляет все четыре действия.
 
-    клиповой поставки (только ``call``) в ядре нет — её несёт тул робота, которого здесь нет.
-    Текст и поля берутся из того же списка, что стоит в enum. Литерал каталога — запись поставки,
-    не то, что видит модель.
+    Существо и вызов в каталоге без enum: их сужает загрузчик поставки, не генератор.
+    Текст — ``perform_description`` того же списка. Литерал каталога совпадает с показом.
     """
     shown = _shown(Form())
     actions = shown["parameters"]["properties"]["action"]["enum"]
     assert actions == list(ACTIONS)
     assert shown["description"] == perform_description(actions)
+    assert shown["description"] == _entry().description
     assert "не обещает" not in shown["description"]
-    # Литерал каталога — запись тула робота, не показ модели. Пока тул на develop отдаёт свою
-    # строку, они расходятся; сверку литерала делает gen_tool_catalog.py --check в CI.
-    assert _entry().description != perform_description(actions)
     names = set(shown["parameters"]["properties"])
     assert names == {"action", *fields_for(actions)}
     assert {"title", "syllables", "timbre", "creature", "call", "phrase_id"} <= names
+    assert "enum" not in shown["parameters"]["properties"]["creature"]
+    assert "enum" not in shown["parameters"]["properties"]["call"]
 
 
 def test_synth_form_offers_sing_and_does_not_deny_it():
@@ -67,8 +60,8 @@ def test_synth_form_offers_sing_and_does_not_deny_it():
 def test_validator_keeps_the_catalog_fields_outside_the_sing_form():
     """Вне хода валидатор не режет поля и не подменяет enum: судит каталог как есть.
 
-    Поставка ядра объявляет все четыре действия, поэтому ``sing`` здесь из enum. Отказ
-    «не обещает» строит тот же модуль, когда список короче поставки, — не вторая строка.
+    Каталог объявляет все четыре действия, поэтому ``sing`` здесь из enum. Отказ
+    «не обещает» строит тот же модуль, когда список короче объявления.
     """
     shown = tool_schema(kn.CHIMERA_TOOL, Form())
     assert "title" in shown["properties"]
