@@ -168,16 +168,26 @@ def drop_said(rows: Sequence[Tuple[str, str, str]], said: Sequence[str]) -> List
     return []
 
 
+def counting_rest(text: str) -> Tuple[str, ...]:
+    """Слова текста без чисел: форма счёта («шаг», «шага», «шагов»). Пустой кортеж — голый счёт, сравнивать нечего.
+
+    Тот же разбор, что у :func:`words` и :func:`numerals`: без знаков и регистра, «ё» = «е». Склейка сегментов через
+    пробел даёт ту же форму, что и по сегментам: нарезка на форму не влияет."""
+    return tuple(word for word in words(text) if not (word.isdigit() or word in NUMERAL_WORDS))
+
+
 def same_performance(new: Sequence[str], old: Sequence[str]) -> bool:
     """Присланные сегменты ``new`` - то же выступление, что ``old``, целиком (#4320: та же просьба посреди идущего):
-    счёт - те же числа по порядку (цифрами или словами, нарезка на сегменты любая), остальное - те же слова (без знаков
-    и регистра)."""
+    счёт - те же числа по порядку (цифрами или словами, нарезка на сегменты любая) и та же форма по словам
+    («шаг» против голого счёта — другая просьба, #4342), остальное - те же слова (без знаков и регистра)."""
     if not new or not old:
         return False
     if all(is_counting(text) for text in (*new, *old)):
-        return numerals(" ".join(new)) == numerals(" ".join(old))
+        same_nums = numerals(" ".join(new)) == numerals(" ".join(old))
+        same_form = counting_rest(" ".join(new)) == counting_rest(" ".join(old))
+        return same_nums and same_form
     return words(" ".join(new)) == words(" ".join(old))
 
 
-__all__ = ["NUMERAL_GENITIVE", "NUMERAL_SAY", "NUMERAL_WORDS", "drop_said", "is_counting", "is_repeat", "numerals",
-           "said_numbers", "same_performance", "words"]
+__all__ = ["NUMERAL_GENITIVE", "NUMERAL_SAY", "NUMERAL_WORDS", "counting_rest", "drop_said", "is_counting",
+           "is_repeat", "numerals", "said_numbers", "same_performance", "words"]
