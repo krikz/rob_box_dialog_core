@@ -62,8 +62,48 @@ def words(text: str) -> Tuple[str, ...]:
 
 
 def numerals(text: str) -> Tuple[int, ...]:
-    """Числа текста по порядку: словами («девять», «одна») и цифрами («9»)."""
+    """Числа текста по порядку: словами («девять», «одна») и цифрами («9»).
+
+    Составное («двадцать два») здесь - два числа (20, 2), не одно: так считает :func:`is_counting` и тесты правки.
+    Для сравнения сказанного и несказанного - :func:`count_numbers` (20+2 = 22)."""
     return tuple(int(w) if w.isdigit() else NUMERAL_WORDS[w] for w in words(text) if w.isdigit() or w in NUMERAL_WORDS)
+
+
+def _compound_at(tokens: Sequence[str], i: int) -> Tuple[int, int]:
+    """Число со слова ``i`` и сколько слов оно заняло. Десятки 20..90 (кратно 10) и единица 1..9 того же падежа -
+    одно число («двадцать два» = 22, «двадцати двух» = 22); разные падежи не склеиваются («до сорока. Один» - 40, не 41,
+    #4320). Цифра - одно слово, одно число. Не число - ``(0, 0)``. Сотни («сто пятьдесят») не склеиваются."""
+    word = tokens[i]
+    if word.isdigit():
+        return int(word), 1
+    value = NUMERAL_WORDS.get(word)
+    genitive = word in NUMERAL_GENITIVE
+    if value is None and genitive:
+        value = NUMERAL_GENITIVE[word]
+    if value is None:
+        return 0, 0
+    after = tokens[i + 1] if i + 1 < len(tokens) else ""
+    same_case = genitive == (after in NUMERAL_GENITIVE)
+    unit = (NUMERAL_GENITIVE if genitive else NUMERAL_WORDS).get(after) if same_case else None
+    if 20 <= value <= 90 and value % 10 == 0 and unit is not None and 1 <= unit <= 9:
+        return value + unit, 2
+    return value, 1
+
+
+def count_numbers(text: str) -> Tuple[int, ...]:
+    """Числа текста для сравнения счёта: составное - одно число («Двадцать один.» = 21, «21» = 21, «сорок» = 40).
+
+    Обход как у :func:`rob_box_dialog.counting._number_at`: склейка только внутри одного падежа. ``numerals`` не
+    меняется - её зовут :func:`is_counting` и тесты, где «двадцать два» ещё два слова."""
+    tokens = words(text)
+    out: List[int] = []
+    i = 0
+    while i < len(tokens):
+        value, used = _compound_at(tokens, i)
+        if used:
+            out.append(value)
+        i += used or 1
+    return tuple(out)
 
 
 def is_counting(text: str) -> bool:
@@ -73,8 +113,8 @@ def is_counting(text: str) -> bool:
 
 
 def said_numbers(said: Sequence[str]) -> FrozenSet[int]:
-    """Какие числа уже прозвучали в сказанном."""
-    return frozenset(n for text in said for n in numerals(text))
+    """Какие числа уже прозвучали в сказанном. Составное - одно число: «двадцать один» даёт 21, не 20 и 1."""
+    return frozenset(n for text in said for n in count_numbers(text))
 
 
 def is_repeat(text: str, said: Sequence[str], said_nums: FrozenSet[int]) -> bool:
@@ -84,7 +124,7 @@ def is_repeat(text: str, said: Sequence[str], said_nums: FrozenSet[int]) -> bool
         return False
     if any(words(done) == key for done in said):
         return True
-    return is_counting(text) and all(n in said_nums for n in numerals(text))
+    return is_counting(text) and all(n in said_nums for n in count_numbers(text))
 
 
 def _sentences(text: str) -> List[str]:
@@ -103,33 +143,51 @@ def _sentences(text: str) -> List[str]:
 def _count_unit(sentence: str, nums: Sequence[int], counting: bool) -> bool:
     """Предложение - единица счёта: числа - не меньше половины слов («Девятнадцать — шаг.»); счёт уже шёл в снятых
     ведущих сегментах (``counting``) - допустимы ещё до ``COUNT_FILLER_WORDS`` слов-приправ («и двадцать шаг — пришли.»
-    после звучащего «И двадцать.»: М8 29.10, n807). Длиннее - рассказ с числом, он остаётся."""
-    extra = len(words(sentence)) - len(nums)
-    return len(nums) * 2 >= len(words(sentence)) or (counting and extra <= COUNT_FILLER_WORDS)
+    после звучащего «И двадцать.»: М8 29.10, n807). Длиннее - рассказ с числом, он остаётся.
+
+    Лишние слова считаются по словам (:func:`numerals`), не по склейке: «Двадцать два.» - два слова-числа, одно
+    составное, и это всё ещё единица счёта."""
+    spoken = numerals(sentence)
+    extra = len(words(sentence)) - len(spoken)
+    return len(spoken) * 2 >= len(words(sentence)) or (counting and extra <= COUNT_FILLER_WORDS)
 
 
 def _unsaid_count_prefix(text: str, said_nums: FrozenSet[int]) -> str:
-    """Счёт через запятую — с первого ещё не названного числа; пустая строка — ведущих повторов нет."""
+    """Счёт через запятую — с первого ещё не названного числа; пустая строка — ведущих повторов нет.
+
+    Сказанное составное съедается целиком («двадцать один» после 21 — оба слова), срез — с первого слова несказанного
+    составного, а не с его единицы («двадцать два» после 21 не режется до «два»)."""
     if not is_counting(text):
         return ""
-    token: List[str] = []
-    start = 0
+    folded = text.lower().replace("ё", "е")
+    spans = _word_spans(folded)
     seen_said = False
-    for i, ch in enumerate(text.lower().replace("ё", "е") + " "):
-        if ch.isalnum():
-            if not token:
-                start = i
-            token.append(ch)
+    i = 0
+    while i < len(spans):
+        value, used = _compound_at(tuple(word for _, _, word in spans), i)
+        if used and value in said_nums:
+            seen_said = True
+            i += used
             continue
-        if token:
-            word = "".join(token)
-            value = int(word) if word.isdigit() else NUMERAL_WORDS.get(word)
-            if value is not None:
-                if value not in said_nums:
-                    return text[start:] if seen_said else ""
-                seen_said = True
-            token = []
+        if used and seen_said:
+            return text[spans[i][0]:]
+        i += used or 1
     return ""
+
+
+def _word_spans(folded: str) -> List[Tuple[int, int, str]]:
+    """Слова нижнего регистра: ``(начало, конец, слово)`` в ``folded`` (уже без «ё»)."""
+    spans: List[Tuple[int, int, str]] = []
+    start: int | None = None
+    for i, ch in enumerate(folded + " "):
+        if ch.isalnum():
+            if start is None:
+                start = i
+            continue
+        if start is not None:
+            spans.append((start, i, folded[start:i]))
+            start = None
+    return spans
 
 
 def _unsaid_part(text: str, said_nums: FrozenSet[int], counting: bool) -> str:
@@ -140,12 +198,12 @@ def _unsaid_part(text: str, said_nums: FrozenSet[int], counting: bool) -> str:
     part = _unsaid_count_prefix(text, said_nums)
     if part:
         return part
-    if len(numerals(text)) < (1 if counting else 2):
+    if len(count_numbers(text)) < (1 if counting else 2):
         return text
     sentences = _sentences(text)
     skip = 0
     for sentence in sentences:
-        nums = numerals(sentence)
+        nums = count_numbers(sentence)
         if not (nums and all(n in said_nums for n in nums) and _count_unit(sentence, nums, counting)):
             break
         skip += 1
@@ -176,18 +234,33 @@ def counting_rest(text: str) -> Tuple[str, ...]:
     return tuple(word for word in words(text) if not (word.isdigit() or word in NUMERAL_WORDS))
 
 
+def _counts_side(segments: Sequence[str]) -> bool:
+    """Сторона выступления — счёт: каждый сегмент проходит :func:`is_counting`, либо склейка (:func:`count_numbers`)
+    даёт составное (≥21 не из одного слова таблицы) и слова-числа — не меньше половины слов. Второе — только чтобы
+    «21 шаг.» и «Двадцать один шаг.» сравнивались как счёт: по :func:`numerals` у цифры одно число, у слов — два, и
+    порог :func:`is_counting` их разводит (#5240). Рассказ с одним числом сюда не попадает: склейки нет."""
+    if segments and all(is_counting(text) for text in segments):
+        return True
+    whole = " ".join(segments)
+    spoken = numerals(whole)
+    glued = count_numbers(whole)
+    compound = any(n >= 21 and n not in NUMERAL_SAY for n in glued)
+    return compound and len(spoken) * 2 >= len(words(whole))
+
+
 def same_performance(new: Sequence[str], old: Sequence[str]) -> bool:
     """Присланные сегменты ``new`` - то же выступление, что ``old``, целиком (#4320: та же просьба посреди идущего):
-    счёт - те же числа по порядку (цифрами или словами, нарезка на сегменты любая) и та же форма по словам
-    («шаг» против голого счёта — другая просьба, #4342), остальное - те же слова (без знаков и регистра)."""
+    счёт - те же числа по порядку (цифрами или словами, составное — одним числом, нарезка любая) и та же форма по словам
+    («шаг» против голого счёта — другая просьба, #4342), остальное - те же слова (без знаков и регистра).
+    Обе стороны считаются одной функцией (:func:`count_numbers`)."""
     if not new or not old:
         return False
-    if all(is_counting(text) for text in (*new, *old)):
-        same_nums = numerals(" ".join(new)) == numerals(" ".join(old))
+    if _counts_side(new) and _counts_side(old):
+        same_nums = count_numbers(" ".join(new)) == count_numbers(" ".join(old))
         same_form = counting_rest(" ".join(new)) == counting_rest(" ".join(old))
         return same_nums and same_form
     return words(" ".join(new)) == words(" ".join(old))
 
 
-__all__ = ["NUMERAL_GENITIVE", "NUMERAL_SAY", "NUMERAL_WORDS", "counting_rest", "drop_said", "is_counting",
-           "is_repeat", "numerals", "said_numbers", "same_performance", "words"]
+__all__ = ["NUMERAL_GENITIVE", "NUMERAL_SAY", "NUMERAL_WORDS", "count_numbers", "counting_rest", "drop_said",
+           "is_counting", "is_repeat", "numerals", "said_numbers", "same_performance", "words"]
