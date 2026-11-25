@@ -103,7 +103,7 @@ from rob_box_dialog import phrases
 from rob_box_dialog import tool_ask
 from rob_box_dialog import track_ref
 from rob_box_dialog import action_chain
-from rob_box_dialog.address import GREETING_WAKE, WORDLESS, Addressed
+from rob_box_dialog.address import GREETING_WAKE, VOICE, WORDLESS, Addressed
 from rob_box_dialog.agents import agent_spec, allows_tier1, tools_for
 from rob_box_dialog.command import (Command, Expression, Form, Invalid, Performance, Result, ToolCall, current_form,
                                     explain, fit_speech, loud_actions, turn_form)
@@ -122,7 +122,7 @@ from rob_box_dialog.session import Session, SessionSnapshot, SpeakerRef
 from rob_box_dialog.speaker_adapter import asks_recognized, known_voice_registers, recognition_reply, speaker_block
 from rob_box_dialog.window_reset import WindowGuard, reset_if_idle, reset_window
 from rob_box_dialog.words import (asks_own_memory_condition, asks_question, asks_to_listen, has_form,
-                                  music_stop_claimed, same_stop_rest)
+                                  music_stop_claimed, name_tokens, same_stop_rest)
 from rob_box_dialog.tools_view import (available_tools, catalogs_asked, library_asked, music_asked, needs_words,
                                        robot_asked, show_asked, speech_asked, voice_asked, voice_named)
 from rob_box_dialog.turn_log import (PERFORM_STARTED, TOOL, USER, TurnAggregate, TurnLog, phrase_label, results_of,
@@ -384,6 +384,8 @@ def tier1_actions(command: Tier1Command, snapshot: SessionSnapshot) -> Tuple[Too
         return _resets(kn.PROSODY_RESET_TOOLS)
     if command.kind == kn.VOICE_STEP_KIND:
         return tuple(ToolCall(tool, {"action": action}) for tool, action in command.args["steps"])
+    if command.kind == kn.MOVE_DIRECTION_TOOL:
+        return (ToolCall(command.kind, command.args),)
     if command.kind == kn.SHOW_QUEUE_KIND:  # сцены по порядку реплики, время - по умолчанию показа
         return tuple(ToolCall(kn.SHOW_TOOL, {"animation": name}) for name in command.args["scenes"])
     return stop_music_calls(snapshot) if stops_music(command) else ()
@@ -835,7 +837,7 @@ def tier1_phrase(command: Tier1Command, results: Sequence[ActionResult],
         return show_queue_phrase(results)
     if stops_music(command):  # «выключи музыку», «хватит» под музыкой, стоп без вейка (решение Шифу 05.11)
         return music_stop_phrase(command, results, pick)
-    if command.kind == kn.VOICE_STEP_KIND:
+    if command.kind in (kn.VOICE_STEP_KIND, kn.MOVE_DIRECTION_TOOL):
         return outcome_phrase(results)
     if command.kind == "set_voice":
         return voice_phrase(results)
@@ -2247,6 +2249,18 @@ def _close_same_stop(engine: "TurnEngine", turn: _Turn, rest: str) -> None:
         turn.unvoiced = ()
 
 
+def _forward_meter(turn: _Turn, snap: SessionSnapshot) -> Optional[Tier1Command]:
+    """Разобрать всю свежую голосовую команду. Вопрос, цитата, подхват и остаток после стопа сюда не входят."""
+    if turn.source != VOICE or turn.pickup or snap.top("Silence") is not None:
+        return None
+    text = turn.text[:-1] if turn.text.endswith((".", "!")) else turn.text
+    if not all(char.isalpha() or char.isspace() for char in text) or name_tokens(text) != kn.FORWARD_METER_WORDS:
+        return None
+    if kn.MOVE_DIRECTION_TOOL not in tools_for(agent_spec(snap.agent), snap.owners):
+        return None
+    return Tier1Command(kn.MOVE_DIRECTION_TOOL, {"direction": "вперёд", "distance": 1.0})
+
+
 def turn_work(engine: "TurnEngine", turn: _Turn, snap: SessionSnapshot) -> Awaitable[None]:
     """Чем ответить на адресованную реплику: ответ на открытый вопрос тула (``tool_ask.reply``) и Tier-1 -
     кодом, без LLM; иначе - ход к LLM. На вопрос тула отвечает только реплика из ``tool_ask.ANSWER_SOURCES`` (вейк,
@@ -2258,6 +2272,9 @@ def turn_work(engine: "TurnEngine", turn: _Turn, snap: SessionSnapshot) -> Await
     reply = tool_ask.reply(engine.session, turn.text, turn.source)
     if reply is not None:
         return answer_tool(engine, turn, reply, snap)
+    motion = _forward_meter(turn, snap)
+    if motion is not None:
+        return engine._tier1(turn, motion, snap, turn.text)
     tier1, parsed = tier1_of(turn.text, turn.command, snap, engine._voices())
     if tier1 is not None and not tier1.disputed:
         if should_reask_stop(tier1.kind, parsed, turn.hypotheses_alternatives, turn.wake_words):
