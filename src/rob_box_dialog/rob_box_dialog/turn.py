@@ -103,7 +103,7 @@ from rob_box_dialog import phrases
 from rob_box_dialog import tool_ask
 from rob_box_dialog import track_ref
 from rob_box_dialog import action_chain
-from rob_box_dialog.address import GREETING_WAKE, WORDLESS, Addressed
+from rob_box_dialog.address import GREETING_WAKE, VOICE, WORDLESS, Addressed
 from rob_box_dialog.agents import agent_spec, allows_tier1, tools_for
 from rob_box_dialog.command import (Command, Expression, Form, Invalid, Performance, Result, ToolCall, current_form,
                                     explain, fit_speech, loud_actions, turn_form)
@@ -266,6 +266,7 @@ class _Turn:
     pushed: int = 0  # повторы за словами на последней итерации (``SPEECH_PUSHES_MAX``)
     expression: Optional[Expression] = None  # экспрессия исполненной команды — красит рефлекс ``done``
     command: str = ""  # запасной разбор Tier-1 (:func:`tier1_of`): слова после вейка (``Addressed.command``, n811)
+    forward_meter: bool = False  # точная команда из исходного текста (Addressed.forward_meter)
     acted: Tuple[ToolCall, ...] = ()  # исполненные в ходе вызовы (не ``query``): повтор не исполняется
     sad: bool = False  # прозвучала грустная фраза (провал, отказ): лицо итога без лица команды - грусть
     utterance_id: str = ""  # фраза STT хода (``Addressed.utterance_id``): по ней - её SpeakerResult
@@ -384,6 +385,8 @@ def tier1_actions(command: Tier1Command, snapshot: SessionSnapshot) -> Tuple[Too
         return _resets(kn.PROSODY_RESET_TOOLS)
     if command.kind == kn.VOICE_STEP_KIND:
         return tuple(ToolCall(tool, {"action": action}) for tool, action in command.args["steps"])
+    if command.kind == kn.MOVE_DIRECTION_TOOL:
+        return (ToolCall(command.kind, command.args),)
     if command.kind == kn.SHOW_QUEUE_KIND:  # сцены по порядку реплики, время - по умолчанию показа
         return tuple(ToolCall(kn.SHOW_TOOL, {"animation": name}) for name in command.args["scenes"])
     return stop_music_calls(snapshot) if stops_music(command) else ()
@@ -835,7 +838,7 @@ def tier1_phrase(command: Tier1Command, results: Sequence[ActionResult],
         return show_queue_phrase(results)
     if stops_music(command):  # «выключи музыку», «хватит» под музыкой, стоп без вейка (решение Шифу 05.11)
         return music_stop_phrase(command, results, pick)
-    if command.kind == kn.VOICE_STEP_KIND:
+    if command.kind in (kn.VOICE_STEP_KIND, kn.MOVE_DIRECTION_TOOL):
         return outcome_phrase(results)
     if command.kind == "set_voice":
         return voice_phrase(results)
@@ -2247,6 +2250,17 @@ def _close_same_stop(engine: "TurnEngine", turn: _Turn, rest: str) -> None:
         turn.unvoiced = ()
 
 
+def _forward_meter(turn: _Turn, snap: SessionSnapshot) -> Optional[Tier1Command]:
+    """Создать один вызов владельцу по прямой голосовой команде, распознанной на этапе адресации."""
+    if not turn.forward_meter or turn.source != VOICE or turn.pickup:
+        return None
+    if snap.top("Silence") is not None or snap.top("OperatorHold") is not None:
+        return None
+    if kn.MOVE_DIRECTION_TOOL not in tools_for(agent_spec(snap.agent), snap.owners):
+        return None
+    return Tier1Command(kn.MOVE_DIRECTION_TOOL, {"direction": "вперёд", "distance": 1.0})
+
+
 def turn_work(engine: "TurnEngine", turn: _Turn, snap: SessionSnapshot) -> Awaitable[None]:
     """Чем ответить на адресованную реплику: ответ на открытый вопрос тула (``tool_ask.reply``) и Tier-1 -
     кодом, без LLM; иначе - ход к LLM. На вопрос тула отвечает только реплика из ``tool_ask.ANSWER_SOURCES`` (вейк,
@@ -2258,6 +2272,9 @@ def turn_work(engine: "TurnEngine", turn: _Turn, snap: SessionSnapshot) -> Await
     reply = tool_ask.reply(engine.session, turn.text, turn.source)
     if reply is not None:
         return answer_tool(engine, turn, reply, snap)
+    motion = _forward_meter(turn, snap)
+    if motion is not None:
+        return engine._tier1(turn, motion, snap, turn.text)
     tier1, parsed = tier1_of(turn.text, turn.command, snap, engine._voices())
     if tier1 is not None and not tier1.disputed:
         if should_reask_stop(tier1.kind, parsed, turn.hypotheses_alternatives, turn.wake_words):
@@ -2458,7 +2475,7 @@ class TurnEngine:
                      heard=picked_heard(addressed), recent=recent_section(addressed),
                      background=background_section(addressed), background_summary=addressed.background_summary,
                      command=addressed.command, speaker=speaker, pickup_view=view, wake_words=snap.wake_words,
-                     utterance_id=addressed.utterance_id,
+                     utterance_id=addressed.utterance_id, forward_meter=addressed.forward_meter,
                      hypotheses_alternatives=addressed.hypotheses.alternatives)
         self.log.begin(turn.turn_id, turn.epoch, turn.text, speaker_label(snap.speaker), turn.heard)
         log_pickup(self._log, addressed, turn)

@@ -39,7 +39,14 @@ from rob_box_dialog.knowledge import (
     ADDRESS_FILLER_WORDS,
     COORDINATOR_NAMES,
 )
-from rob_box_dialog.words import has_wake_word, music_stop_unwoken, slipped_wake_rest, strip_wake_word, wake_command
+from rob_box_dialog.words import (
+    forward_meter_asked,
+    has_wake_word,
+    music_stop_unwoken,
+    slipped_wake_rest,
+    strip_wake_word,
+    wake_command,
+)
 
 #: Источники реплики (значения ``Utterance.SOURCE_*``; тест сверяет с ``.msg``).
 SOURCE_RESPEAKER, SOURCE_TELEGRAM, SOURCE_OPERATOR = "respeaker", "telegram", "operator"
@@ -96,6 +103,8 @@ class Addressed:
     #: Гипотезы распознавания фразы хода (``Heard.hypotheses``, #4017 шаг C1) — у хода из самой фразы, как
     #: ``utterance_id``; у подхвата и голого вейка — :data:`NO_HYPOTHESES`. Поведение по ним — шаг C2.
     hypotheses: SttHypotheses = NO_HYPOTHESES
+    #: Исходная голосовая фраза целиком задаёт движение на метр с настоящим ведущим вейком.
+    forward_meter: bool = field(default=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -173,7 +182,7 @@ def decide(heard: Heard, backlog: Optional[Backlog], wake_words: Sequence[str],
     (``Addressed.utterance_id``, :func:`_of_phrase`)."""
     decision = _decide(heard, backlog, wake_words, question, greeting, ask, hold, music_playing)
     _note_answered(decision, heard, backlog)
-    return _of_phrase(decision, heard)
+    return _of_phrase(decision, heard, wake_words)
 
 
 def _note_answered(decision: Decision, heard: Heard, backlog: Optional[Backlog]) -> None:
@@ -187,11 +196,20 @@ def _note_answered(decision: Decision, heard: Heard, backlog: Optional[Backlog])
         backlog.note_addressed(heard.t)
 
 
-def _of_phrase(decision: Decision, heard: Heard) -> Decision:
+def _of_phrase(decision: Decision, heard: Heard, wake_words: Sequence[str]) -> Decision:
     """Ход, текст которого — сама фраза ``heard`` (не подхват бэклога и не голый вейк), — с её ``utterance_id``: по нему
     ход находит SpeakerResult этой фразы; и с её гипотезами распознавания (#4017 шаг C1)."""
     if isinstance(decision, Addressed) and not decision.pickup and decision.source not in WORDLESS:
-        return replace(decision, utterance_id=heard.utterance_id, hypotheses=heard.hypotheses)
+        return replace(
+            decision,
+            utterance_id=heard.utterance_id,
+            hypotheses=heard.hypotheses,
+            forward_meter=(
+                decision.source == VOICE
+                and heard.source == SOURCE_RESPEAKER
+                and forward_meter_asked(heard.text, wake_words)
+            ),
+        )
     return decision
 
 
