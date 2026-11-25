@@ -60,6 +60,57 @@ def test_meter_lookalikes_leave_motion_closed(text: str) -> None:
     assert all("move_direction" not in names for _, names, _ in ports.asked)
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Роботу вперёд на метр?",
+        "Вперёд на метр робот?",
+        "Робот? Вперёд на метр",
+        "Робот?! Вперёд на метр",
+        "«Робот, вперёд на метр»",
+    ],
+    ids=["slipped-wake", "trailing-wake", "wake-question", "mixed-wake-punctuation", "quoted-command"],
+)
+def test_meter_requires_a_literal_leading_wake_and_unquoted_command(text: str) -> None:
+    ports = Ports(answers=[Answer(Command(speech="Хорошо."), "test")])
+
+    _voice_turn(ports, text)
+
+    assert ports.executed == []
+
+
+def test_meter_command_needs_a_wake_even_in_wakeless_profile() -> None:
+    ports = Ports(answers=[Answer(Command(speech="Хорошо."), "test")])
+    utterance = decide(Heard("вперёд на метр", t=100.0), Backlog(), ())
+    assert isinstance(utterance, Addressed)
+
+    _run_addressed(_engine(ports), utterance)
+
+    assert ports.executed == []
+
+
+def test_meter_does_not_execute_from_unrecognized_utterance_source() -> None:
+    ports = Ports(answers=[Answer(Command(speech="Хорошо."), "test")])
+    utterance = decide(Heard("Робот, вперёд на метр", t=100.0, source="invalid"), Backlog(), ROBOT_WAKE)
+    assert isinstance(utterance, Addressed)
+
+    _run_addressed(_engine(ports), utterance)
+
+    assert ports.executed == []
+
+
+def test_meter_does_not_execute_if_operator_takes_over_after_addressing() -> None:
+    ports = Ports(answers=[Answer(Command(speech="Хорошо."), "test")])
+    engine = _engine(ports)
+    utterance = decide(Heard("Робот, вперёд на метр", t=100.0), Backlog(), ROBOT_WAKE)
+    assert isinstance(utterance, Addressed)
+    engine.session.push_scene("OperatorHold", "operator", ttl_s=60.0)
+
+    _run_addressed(engine, utterance)
+
+    assert ports.executed == []
+
+
 def test_meter_text_picked_up_from_backlog_does_not_move_the_base() -> None:
     ports = Ports(answers=[Answer(Command(speech="Хорошо."), "test")])
 

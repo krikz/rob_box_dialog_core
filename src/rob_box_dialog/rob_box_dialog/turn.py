@@ -122,7 +122,7 @@ from rob_box_dialog.session import Session, SessionSnapshot, SpeakerRef
 from rob_box_dialog.speaker_adapter import asks_recognized, known_voice_registers, recognition_reply, speaker_block
 from rob_box_dialog.window_reset import WindowGuard, reset_if_idle, reset_window
 from rob_box_dialog.words import (asks_own_memory_condition, asks_question, asks_to_listen, has_form,
-                                  music_stop_claimed, name_tokens, same_stop_rest)
+                                  music_stop_claimed, same_stop_rest)
 from rob_box_dialog.tools_view import (available_tools, catalogs_asked, library_asked, music_asked, needs_words,
                                        robot_asked, show_asked, speech_asked, voice_asked, voice_named)
 from rob_box_dialog.turn_log import (PERFORM_STARTED, TOOL, USER, TurnAggregate, TurnLog, phrase_label, results_of,
@@ -266,6 +266,7 @@ class _Turn:
     pushed: int = 0  # повторы за словами на последней итерации (``SPEECH_PUSHES_MAX``)
     expression: Optional[Expression] = None  # экспрессия исполненной команды — красит рефлекс ``done``
     command: str = ""  # запасной разбор Tier-1 (:func:`tier1_of`): слова после вейка (``Addressed.command``, n811)
+    forward_meter: bool = False  # точная команда из исходного текста (Addressed.forward_meter)
     acted: Tuple[ToolCall, ...] = ()  # исполненные в ходе вызовы (не ``query``): повтор не исполняется
     sad: bool = False  # прозвучала грустная фраза (провал, отказ): лицо итога без лица команды - грусть
     utterance_id: str = ""  # фраза STT хода (``Addressed.utterance_id``): по ней - её SpeakerResult
@@ -2250,11 +2251,10 @@ def _close_same_stop(engine: "TurnEngine", turn: _Turn, rest: str) -> None:
 
 
 def _forward_meter(turn: _Turn, snap: SessionSnapshot) -> Optional[Tier1Command]:
-    """Разобрать всю свежую голосовую команду. Вопрос, цитата, подхват и остаток после стопа сюда не входят."""
-    if turn.source != VOICE or turn.pickup or snap.top("Silence") is not None:
+    """Создать один вызов владельцу по прямой голосовой команде, распознанной на этапе адресации."""
+    if not turn.forward_meter or turn.source != VOICE or turn.pickup:
         return None
-    text = turn.text[:-1] if turn.text.endswith((".", "!")) else turn.text
-    if not all(char.isalpha() or char.isspace() for char in text) or name_tokens(text) != kn.FORWARD_METER_WORDS:
+    if snap.top("Silence") is not None or snap.top("OperatorHold") is not None:
         return None
     if kn.MOVE_DIRECTION_TOOL not in tools_for(agent_spec(snap.agent), snap.owners):
         return None
@@ -2475,7 +2475,7 @@ class TurnEngine:
                      heard=picked_heard(addressed), recent=recent_section(addressed),
                      background=background_section(addressed), background_summary=addressed.background_summary,
                      command=addressed.command, speaker=speaker, pickup_view=view, wake_words=snap.wake_words,
-                     utterance_id=addressed.utterance_id,
+                     utterance_id=addressed.utterance_id, forward_meter=addressed.forward_meter,
                      hypotheses_alternatives=addressed.hypotheses.alternatives)
         self.log.begin(turn.turn_id, turn.epoch, turn.text, speaker_label(snap.speaker), turn.heard)
         log_pickup(self._log, addressed, turn)

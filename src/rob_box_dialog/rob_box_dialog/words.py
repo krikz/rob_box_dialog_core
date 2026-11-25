@@ -121,6 +121,18 @@ def strip_wake_word(text: str, wake_words: Optional[Sequence[str]] = None) -> st
     return _pattern(words, _RIGHT + r"[.,!?\s]*").sub("", text or "", count=1).strip()
 
 
+def forward_meter_asked(text: str, wake_words: Sequence[str]) -> bool:
+    """Точная команда с настоящим вейком в начале исходной фразы. Кавычки и вопрос сохраняются."""
+    text = text.lstrip()
+    wake = _pattern(tuple(wake_words), _RIGHT).match(text) if wake_words else None
+    if wake is None:
+        return False
+    body = text[wake.end():].lstrip().removeprefix(",").strip()
+    if body.endswith((".", "!")):
+        body = body[:-1]
+    return name_tokens(body) == _kn.FORWARD_METER_WORDS and all(char.isalpha() or char.isspace() for char in body)
+
+
 def _distance(a: str, b: str) -> int:
     """Расстояние Левенштейна (вставка, удаление, замена по 1)."""
     row = list(range(len(b) + 1))
